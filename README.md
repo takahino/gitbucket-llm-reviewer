@@ -115,3 +115,7 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 
 - GitBucket's REST API has no `pulls/:id/files` or compare endpoint, so the primary diff path depends on JGit being able to fetch over git smart HTTP. If that authentication doesn't work out of the box, set `gitUsername`/`gitPassword` explicitly in `config.yml`.
 - The API-based diff fallback concatenates per-commit patches and is an approximation, not an exact merge-base diff.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

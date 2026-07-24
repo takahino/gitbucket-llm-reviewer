@@ -9,6 +9,24 @@
   <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
 
+  <name>gitbucket-llm-reviewer</name>
+  <description>GitBucketのプルリクエストをポーリング監視し、OpenAI互換APIのローカルLLMで自動コードレビューを行うツール</description>
+  <url>https://github.com/takahino/gitbucket-llm-reviewer</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <scm>
+    <url>https://github.com/takahino/gitbucket-llm-reviewer</url>
+    <connection>scm:git:https://github.com/takahino/gitbucket-llm-reviewer.git</connection>
+    <developerConnection>scm:git:https://github.com/takahino/gitbucket-llm-reviewer.git</developerConnection>
+  </scm>
+
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

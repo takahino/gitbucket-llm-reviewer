@@ -115,3 +115,7 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 
 - GitBucketのREST APIには `pulls/:id/files` やcompare相当のエンドポイントが無いため、プライマリのdiff取得はJGitによるgit smart HTTP経由のfetchに依存します。認証がうまくいかない場合は `config.yml` の `gitUsername`/`gitPassword` を明示的に設定してください。
 - APIベースのdiffフォールバックはコミット単位パッチの連結による近似であり、厳密なmerge-base差分ではありません。
+
+## ライセンス
+
+[Apache License, Version 2.0](LICENSE) のもとで公開しています。
