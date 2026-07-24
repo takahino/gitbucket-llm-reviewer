@@ -1,0 +1,7 @@
+target/
+data/
+config.yml
+dependency-reduced-pom.xml
+*.log
+.idea/
+*.iml

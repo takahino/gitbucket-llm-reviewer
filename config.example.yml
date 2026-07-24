@@ -1,0 +1,25 @@
+gitbucket:
+  baseUrl: http://localhost:8080
+  token: "xxxxxxxx"
+  gitUsername: ""     # JGit fetch用(任意。空ならtokenをBasic認証のusername/passwordとして試行)
+  gitPassword: ""
+repositories:
+  - owner: root
+    name: sample-repo
+polling:
+  intervalSeconds: 60
+llm:
+  baseUrl: http://localhost:11434/v1
+  model: qwen2.5-coder:14b
+  apiKey: ""          # LM Studio/vLLM等でAPIキーが必要な場合のみ設定
+  temperature: 0.2
+  maxTokens: 4096
+  timeoutSeconds: 300
+review:
+  maxDiffChars: 60000
+  maxAdditionalFiles: 5
+  maxFileChars: 50000
+  maxPasses: 3
+state:
+  filePath: ./data/review-state.json
+workDir: ./data/repos

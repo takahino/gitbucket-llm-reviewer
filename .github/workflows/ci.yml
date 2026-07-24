@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build (compile + package)
+        run: mvn -B package
+
+      - name: Smoke test the packaged jar
+        # config.example.yml points at an unreachable localhost GitBucket/LLM on purpose.
+        # This only verifies the fat-jar starts, wires all classes correctly, and shuts
+        # down cleanly (--once) instead of failing with classloading/signature errors.
+        run: |
+          cp config.example.yml config.yml
+          java -jar target/gitbucket-llm-reviewer.jar --config config.yml --once --dry-run

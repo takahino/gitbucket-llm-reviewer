@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gitbucket-llm-reviewer 詳細ガイド</title>
+<style>
+  :root {
+    --bg: #eef0ea;
+    --grid-line: rgba(26,31,27,0.05);
+    --surface: #ffffff;
+    --surface-2: #e4e7dd;
+    --ink: #1a1f1b;
+    --ink-muted: #4b564f;
+    --ink-faint: #7c877e;
+    --line: rgba(26,31,27,0.14);
+    --line-strong: rgba(26,31,27,0.28);
+    --accent: #a6431e;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(166,67,30,0.10);
+    --teal: #2f6e62;
+    --teal-soft: rgba(47,110,98,0.12);
+    --amber: #8a6516;
+    --amber-soft: rgba(185,131,40,0.16);
+    --red: #a5342f;
+    --red-soft: rgba(178,58,58,0.12);
+    --radius: 3px;
+    --font-display: "Yu Mincho", "游明朝", "Hiragino Mincho ProN", "HG Mincho E", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --font-body: "Yu Gothic", "游ゴシック", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181c;
+      --grid-line: rgba(237,239,232,0.055);
+      --surface: #1c2120;
+      --surface-2: #232823;
+      --ink: #edefe8;
+      --ink-muted: #a9b2a6;
+      --ink-faint: #77817a;
+      --line: rgba(237,239,232,0.14);
+      --line-strong: rgba(237,239,232,0.26);
+      --accent: #dd8a57;
+      --accent-ink: #201207;
+      --accent-soft: rgba(221,138,87,0.14);
+      --teal: #6cc0ac;
+      --teal-soft: rgba(108,192,172,0.14);
+      --amber: #e0b25c;
+      --amber-soft: rgba(224,178,92,0.16);
+      --red: #e2726b;
+      --red-soft: rgba(226,114,107,0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181c; --grid-line: rgba(237,239,232,0.055); --surface: #1c2120; --surface-2: #232823;
+    --ink: #edefe8; --ink-muted: #a9b2a6; --ink-faint: #77817a; --line: rgba(237,239,232,0.14);
+    --line-strong: rgba(237,239,232,0.26); --accent: #dd8a57; --accent-ink: #201207;
+    --accent-soft: rgba(221,138,87,0.14); --teal: #6cc0ac; --teal-soft: rgba(108,192,172,0.14);
+    --amber: #e0b25c; --amber-soft: rgba(224,178,92,0.16); --red: #e2726b; --red-soft: rgba(226,114,107,0.14);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef0ea; --grid-line: rgba(26,31,27,0.05); --surface: #ffffff; --surface-2: #e4e7dd;
+    --ink: #1a1f1b; --ink-muted: #4b564f; --ink-faint: #7c877e; --line: rgba(26,31,27,0.14);
+    --line-strong: rgba(26,31,27,0.28); --accent: #a6431e; --accent-ink: #ffffff;
+    --accent-soft: rgba(166,67,30,0.10); --teal: #2f6e62; --teal-soft: rgba(47,110,98,0.12);
+    --amber: #8a6516; --amber-soft: rgba(185,131,40,0.16); --red: #a5342f; --red-soft: rgba(178,58,58,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background:
+      repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 32px),
+      repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 32px),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  code, pre, kbd, .mono { font-family: var(--font-mono); }
+
+  /* ---------- shell layout ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 248px minmax(0, 1fr);
+    max-width: 1240px;
+    margin: 0 auto;
+  }
+  .topbar {
+    display: none;
+  }
+  nav.toc {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 18px 28px 28px;
+    border-right: 1px solid var(--line);
+  }
+  .brand {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .brand small {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+    margin-top: 4px;
+  }
+  .toc ol {
+    list-style: none;
+    margin: 22px 0 0;
+    padding: 0;
+    border-left: 1px solid var(--line);
+  }
+  .toc li { margin: 0; }
+  .toc a {
+    display: block;
+    padding: 7px 0 7px 16px;
+    margin-left: -1px;
+    border-left: 1px solid transparent;
+    color: var(--ink-muted);
+    font-size: 0.88rem;
+    text-decoration: none;
+  }
+  .toc a:hover { color: var(--ink); }
+  .toc a.active {
+    color: var(--accent);
+    border-left-color: var(--accent);
+    font-weight: 600;
+  }
+  .toc .num {
+    font-family: var(--font-mono);
+    color: var(--ink-faint);
+    font-size: 0.76rem;
+    margin-right: 6px;
+  }
+
+  main {
+    min-width: 0;
+    padding: 44px 40px 100px;
+  }
+  header.masthead {
+    padding-bottom: 28px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  header.masthead h1 {
+    font-size: clamp(1.7rem, 2.6vw, 2.35rem);
+    margin: 10px 0 12px;
+  }
+  header.masthead p.lede {
+    max-width: 62ch;
+    color: var(--ink-muted);
+    font-size: 1.02rem;
+  }
+  .quicklinks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .quicklinks a {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    letter-spacing: 0.03em;
+    text-decoration: none;
+    color: var(--ink-muted);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 5px 10px;
+    background: var(--surface);
+  }
+  .quicklinks a:hover { border-color: var(--accent); color: var(--accent); }
+
+  section { margin-bottom: 64px; scroll-margin-top: 20px; }
+  section h2 {
+    font-size: 1.5rem;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin: 0 0 6px;
+  }
+  section h2 .eyebrow { order: -1; }
+  section > .lede {
+    color: var(--ink-muted);
+    max-width: 68ch;
+    margin: 4px 0 24px;
+  }
+  h3 { font-size: 1.12rem; margin: 30px 0 10px; }
+  p { max-width: 68ch; }
+  .prose { max-width: 68ch; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+  }
+
+  /* ---------- code blocks ---------- */
+  .code-block {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    margin: 14px 0 22px;
+  }
+  .code-block .label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: 8px 14px 0;
+    display: block;
+  }
+  .code-block pre {
+    margin: 0;
+    padding: 6px 16px 14px;
+    font-size: 0.86rem;
+    line-height: 1.65;
+    tab-size: 2;
+    white-space: pre;
+  }
+  .k { color: var(--teal); }              /* yaml key */
+  .s { color: var(--accent); }            /* string value */
+  .c { color: var(--ink-faint); font-style: italic; } /* comment */
+  .n { color: var(--ink-muted); }         /* number/bool literal */
+  .flag { color: var(--accent); }         /* cli flag */
+
+  /* ---------- tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 16px 0 28px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    min-width: 560px;
+  }
+  caption {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  td code, th code {
+    font-size: 0.85em;
+    background: var(--surface-2);
+    padding: 1px 6px;
+    border-radius: var(--radius);
+  }
+  tbody tr:hover { background: var(--accent-soft); }
+
+  .req { color: var(--red); font-weight: 600; font-size: 0.78rem; }
+  .opt { color: var(--ink-faint); font-size: 0.78rem; }
+
+  /* ---------- chips ---------- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .chip.complete { background: var(--teal-soft); color: var(--teal); border-color: currentColor; }
+  .chip.context  { background: var(--amber-soft); color: var(--amber); border-color: currentColor; }
+  .chip.error    { background: var(--red-soft); color: var(--red); border-color: currentColor; }
+  .chip.neutral  { background: var(--surface-2); color: var(--ink-muted); }
+
+  /* ---------- numbered steps (real sequences only) ---------- */
+  .steps { list-style: none; margin: 20px 0; padding: 0; counter-reset: step; }
+  .steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 4px 18px;
+    padding: 20px 0;
+    border-top: 1px solid var(--line);
+  }
+  .steps > li:first-child { border-top: none; }
+  .steps > li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--accent);
+    padding-top: 2px;
+  }
+  .steps h3 { margin: 0 0 6px; grid-column: 2; }
+  .steps .step-body { grid-column: 2; }
+  .steps .step-num-spacer { grid-column: 1; }
+
+  /* ---------- diagrams ---------- */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+    overflow-x: auto;
+    margin: 18px 0 10px;
+  }
+  .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .diagram-caption {
+    font-size: 0.84rem;
+    color: var(--ink-faint);
+    margin: 0 0 26px;
+  }
+  svg text { font-family: var(--font-body); }
+  svg .lbl-mono { font-family: var(--font-mono); }
+
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--amber);
+    background: var(--amber-soft);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin: 18px 0;
+    max-width: 68ch;
+  }
+  .callout.danger { border-left-color: var(--red); background: var(--red-soft); }
+  .callout .eyebrow { display: block; margin-bottom: 4px; }
+  .callout p { margin: 0; max-width: none; }
+
+  details.qa {
+    border-bottom: 1px solid var(--line);
+    padding: 14px 0;
+  }
+  details.qa:first-of-type { border-top: 1px solid var(--line); }
+  details.qa summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  details.qa summary::-webkit-details-marker { display: none; }
+  details.qa summary::before {
+    content: "+";
+    font-family: var(--font-mono);
+    color: var(--accent);
+    width: 1em;
+  }
+  details.qa[open] summary::before { content: "–"; }
+  details.qa .a { margin: 10px 0 0 1.6em; color: var(--ink-muted); max-width: 62ch; }
+
+  footer.page-end {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    color: var(--ink-faint);
+    font-size: 0.82rem;
+  }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.toc {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding: 18px 20px;
+    }
+    .toc ol { columns: 2; column-gap: 24px; }
+    main { padding: 32px 20px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="目次">
+    <a class="brand" href="#top">gitbucket-llm-reviewer
+      <small>USAGE MANUAL</small>
+    </a>
+    <ol>
+      <li><span class="num">01</span><a href="#overview" data-toc>全体像</a></li>
+      <li><span class="num">02</span><a href="#requirements" data-toc>必要要件</a></li>
+      <li><span class="num">03</span><a href="#setup" data-toc>セットアップ</a></li>
+      <li><span class="num">04</span><a href="#config-ref" data-toc>config.yml リファレンス</a></li>
+      <li><span class="num">05</span><a href="#review-yml-ref" data-toc>.review.yml リファレンス</a></li>
+      <li><span class="num">06</span><a href="#cli" data-toc>CLIオプション</a></li>
+      <li><span class="num">07</span><a href="#flow" data-toc>レビューの流れ(Nパス)</a></li>
+      <li><span class="num">08</span><a href="#state" data-toc>状態管理と冪等性</a></li>
+      <li><span class="num">09</span><a href="#encoding" data-toc>文字コードの扱い</a></li>
+      <li><span class="num">10</span><a href="#troubleshooting" data-toc>トラブルシューティング</a></li>
+      <li><span class="num">11</span><a href="#appendix" data-toc>付録: ディレクトリ構成</a></li>
+    </ol>
+  </nav>
+
+  <main id="top">
+    <header class="masthead">
+      <span class="eyebrow">USAGE MANUAL / v1</span>
+      <h1>gitbucket-llm-reviewer 詳細ガイド</h1>
+      <p class="lede">
+        GitBucket のプルリクエストをポーリングで監視し、OpenAI互換API経由のローカルLLMで
+        自動コードレビューを行うJava 21製アプリケーションの運用マニュアルです。
+        セットアップから設定ファイルの全項目、Nパスによる全体整合チェックの内部動作まで、
+        実際に運用する上で必要な情報をまとめています。
+      </p>
+      <div class="quicklinks">
+        <a href="#setup">→ すぐに動かす</a>
+        <a href="#config-ref">config.yml 全項目</a>
+        <a href="#review-yml-ref">.review.yml 全項目</a>
+        <a href="#flow">Nパスの仕組み</a>
+        <a href="#troubleshooting">うまく動かない時</a>
+      </div>
+    </header>
+
+    <!-- ============================================================ -->
+    <section id="overview">
+      <h2><span class="eyebrow">01</span>全体像</h2>
+      <p class="lede">
+        1プロセスの常駐アプリケーションが、監視対象リポジトリを定期的に走査します。
+        diffの取得はGitBucketのgit smart HTTPに対するJGitフェッチを主経路とし、
+        失敗した場合のみREST APIのコミット単位パッチ連結にフォールバックします。
+      </p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 760 470" role="img" aria-labelledby="diagFlowTitle diagFlowDesc" xmlns="http://www.w3.org/2000/svg">
+          <title id="diagFlowTitle">全体の処理フロー</title>
+          <desc id="diagFlowDesc">PollingServiceがGitBucket REST APIからPR一覧を取得し、JGitを主経路・REST APIパッチ連結をフォールバックとしてdiffを得て、ReviewOrchestratorがLLMとNパスでやり取りした後、PRにコメントを投稿しreview-state.jsonを更新する流れ。</desc>
+          <defs>
+            <marker id="arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-muted)"></path>
+            </marker>
+            <marker id="arrow-flow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+            </marker>
+          </defs>
+
+          <!-- PollingService -->
+          <rect x="290" y="10" width="180" height="46" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.4"></rect>
+          <text x="380" y="38" text-anchor="middle" font-size="14" fill="var(--ink)">PollingService</text>
+
+          <!-- GitBucket REST API -->
+          <rect x="290" y="96" width="180" height="52" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.4"></rect>
+          <text x="380" y="118" text-anchor="middle" font-size="13.5" fill="var(--ink)">GitBucket REST API</text>
+          <text x="380" y="136" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">PR一覧 / .review.yml / コメント投稿</text>
+
+          <!-- diff strategy: two boxes -->
+          <rect x="60" y="196" width="220" height="60" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"></rect>
+          <text x="170" y="220" text-anchor="middle" font-size="13.5" fill="var(--ink)">JGit (git smart HTTP)</text>
+          <text x="170" y="238" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-muted)">merge-base diff・主経路</text>
+
+          <rect x="320" y="196" width="220" height="60" rx="2" fill="none" stroke="var(--ink-faint)" stroke-width="1.2" stroke-dasharray="5 4"></rect>
+          <text x="430" y="220" text-anchor="middle" font-size="13.5" fill="var(--ink-muted)">REST APIフォールバック</text>
+          <text x="430" y="238" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">コミット単位パッチ連結</text>
+
+          <text x="300" y="192" font-size="10.5" class="lbl-mono" fill="var(--red)">失敗時 →</text>
+
+          <!-- ReviewOrchestrator -->
+          <rect x="220" y="296" width="320" height="54" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.6"></rect>
+          <text x="380" y="320" text-anchor="middle" font-size="14" fill="var(--ink)">ReviewOrchestrator</text>
+          <text x="380" y="338" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">観点解決・プロンプト構築</text>
+
+          <!-- LLM -->
+          <rect x="580" y="296" width="150" height="54" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.4"></rect>
+          <text x="655" y="320" text-anchor="middle" font-size="13.5" fill="var(--ink)">LLM</text>
+          <text x="655" y="337" text-anchor="middle" font-size="10.5" class="lbl-mono" fill="var(--ink-faint)">OpenAI互換API</text>
+
+          <!-- comment + state -->
+          <rect x="220" y="396" width="150" height="52" rx="2" fill="var(--teal-soft)" stroke="var(--teal)" stroke-width="1.3"></rect>
+          <text x="295" y="426" text-anchor="middle" font-size="12.5" fill="var(--ink)">PRコメント投稿</text>
+
+          <rect x="410" y="396" width="150" height="52" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.2"></rect>
+          <text x="485" y="420" text-anchor="middle" font-size="12" fill="var(--ink)">review-state.json</text>
+          <text x="485" y="436" text-anchor="middle" font-size="10" class="lbl-mono" fill="var(--ink-faint)">headSha 更新</text>
+
+          <!-- arrows -->
+          <path d="M380,56 L380,94" stroke="var(--ink-muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow-flow)"></path>
+          <path d="M340,148 C280,168 220,178 175,194" stroke="var(--ink-muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow-flow)"></path>
+          <path d="M170,256 L280,296" stroke="var(--accent)" stroke-width="1.6" fill="none" marker-end="url(#arrow-flow-accent)"></path>
+          <path d="M430,256 L400,296" stroke="var(--ink-faint)" stroke-width="1.2" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-flow)"></path>
+          <path d="M540,320 L578,320" stroke="var(--ink-muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow-flow)"></path>
+          <path d="M600,352 C560,375 500,382 400,375" stroke="var(--ink-faint)" stroke-width="1.2" fill="none" marker-end="url(#arrow-flow)"></path>
+          <text x="530" y="368" text-anchor="middle" font-size="10.5" class="lbl-mono" fill="var(--ink-faint)">need_more_context</text>
+          <path d="M340,350 L300,394" stroke="var(--teal)" stroke-width="1.4" fill="none" marker-end="url(#arrow-flow)"></path>
+          <path d="M370,422 L408,422" stroke="var(--ink-muted)" stroke-width="1.3" fill="none" marker-end="url(#arrow-flow)"></path>
+        </svg>
+      </div>
+      <p class="diagram-caption">
+        図1: 実線の矢印がJGit経由の主経路、破線がAPIフォールバック経路。LLMとReviewOrchestratorの間の点線ループは
+        <code>need_more_context</code> による追加ファイル要求の往復を表す(詳細は「07 レビューの流れ」を参照)。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="requirements">
+      <h2><span class="eyebrow">02</span>必要要件</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th>要件</th></tr></thead>
+          <tbody>
+            <tr><td>Java</td><td>21 以上</td></tr>
+            <tr><td>Maven</td><td>3.9 以上</td></tr>
+            <tr><td>GitBucket</td><td>稼働中のインスタンス(4.46.1で動作確認済み)とAPIトークン</td></tr>
+            <tr><td>LLMエンドポイント</td><td>OpenAI互換の <code>/chat/completions</code> を持つサーバー(Ollama / LM Studio / vLLM 等)</td></tr>
+            <tr><td>ネットワーク</td><td>本ツールからGitBucketのHTTP(S)・git smart HTTP、およびLLMエンドポイントへの到達性</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="setup">
+      <h2><span class="eyebrow">03</span>セットアップ</h2>
+      <p class="lede">初回起動までの実際の手順です。上から順に実行してください。</p>
+
+      <ol class="steps">
+        <li>
+          <h3>ビルドする</h3>
+          <div class="step-body">
+            <p>プロジェクトルートで実行可能なfat-jarを生成します。</p>
+            <div class="code-block">
+              <span class="label">bash</span>
+              <pre><span class="c"># target/gitbucket-llm-reviewer.jar が生成される</span>
+mvn package</pre>
+            </div>
+          </div>
+        </li>
+        <li>
+          <h3>ツール側設定ファイルを作成する</h3>
+          <div class="step-body">
+            <p><code>config.example.yml</code> を <code>config.yml</code> としてコピーし、実際の値を設定します。
+              <code>config.yml</code> は <code>.gitignore</code> 済みなので、実トークンをコミットしてしまう心配はありません。</p>
+            <div class="code-block">
+              <span class="label">bash</span>
+              <pre>cp config.example.yml config.yml</pre>
+            </div>
+            <p>最低限、以下の3項目は必ず自分の環境の値に書き換えてください(各項目の意味は「04 config.yml リファレンス」で解説)。</p>
+            <div class="code-block">
+              <span class="label">config.yml(抜粋)</span>
+              <pre><span class="k">gitbucket</span>:
+  <span class="k">baseUrl</span>: <span class="s">http://localhost:8080</span>   <span class="c"># 自分のGitBucketのURL</span>
+  <span class="k">token</span>: <span class="s">"xxxxxxxx"</span>            <span class="c"># GitBucketで発行したAPIトークン</span>
+<span class="k">repositories</span>:
+  - <span class="k">owner</span>: <span class="s">root</span>               <span class="c"># 監視したいリポジトリのowner</span>
+    <span class="k">name</span>: <span class="s">sample-repo</span>         <span class="c"># 監視したいリポジトリ名</span></pre>
+            </div>
+          </div>
+        </li>
+        <li>
+          <h3>リポジトリ側にレビュー観点を配置する(任意)</h3>
+          <div class="step-body">
+            <p><code>review.example.yml</code> を参考に、<strong>レビュー対象リポジトリのルート</strong>に
+              <code>.review.yml</code> として配置します。配置しない場合はデフォルトの観点(セキュリティ・命名一貫性・エッジケース)で継続されます。</p>
+            <div class="code-block">
+              <span class="label">bash</span>
+              <pre><span class="c"># レビュー対象リポジトリ側での作業</span>
+cp review.example.yml .review.yml
+git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
+            </div>
+          </div>
+        </li>
+        <li>
+          <h3>まずは --once --dry-run で試す</h3>
+          <div class="step-body">
+            <p>実際にPRへコメントを投稿する前に、生成されるコメント内容をログで確認できます。</p>
+            <div class="code-block">
+              <span class="label">bash</span>
+              <pre>java -jar target/gitbucket-llm-reviewer.jar <span class="flag">--config</span> config.yml <span class="flag">--once</span> <span class="flag">--dry-run</span></pre>
+            </div>
+          </div>
+        </li>
+        <li>
+          <h3>常駐モードで起動する</h3>
+          <div class="step-body">
+            <p>問題なければ <code>--once --dry-run</code> を外して起動します。<code>polling.intervalSeconds</code> 毎にポーリングを続け、
+              SIGTERMで安全に停止します。</p>
+            <div class="code-block">
+              <span class="label">bash</span>
+              <pre>java -jar target/gitbucket-llm-reviewer.jar <span class="flag">--config</span> config.yml</pre>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="config-ref">
+      <h2><span class="eyebrow">04</span>config.yml リファレンス</h2>
+      <p class="lede">ツール自体の挙動を制御する設定です。トップレベルのキーごとに解説します。</p>
+
+      <h3><code>gitbucket</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>キー</th><th>型</th><th>必須</th><th>デフォルト</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseUrl</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>GitBucketのベースURL(末尾スラッシュは自動で除去)</td></tr>
+            <tr><td><code>token</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>REST API用のAPIトークン(<code>Authorization: token ...</code>)</td></tr>
+            <tr><td><code>gitUsername</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>JGit fetch(git smart HTTP)用のBasic認証ユーザー名。空の場合は <code>token</code> をユーザー名・パスワード双方に使って試行する</td></tr>
+            <tr><td><code>gitPassword</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>同パスワード。認証に失敗する場合は明示的に設定する</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><code>repositories[]</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>キー</th><th>型</th><th>必須</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>owner</code></td><td>string</td><td><span class="req">必須</span></td><td>リポジトリのオーナー名</td></tr>
+            <tr><td><code>name</code></td><td>string</td><td><span class="req">必須</span></td><td>リポジトリ名。最低1件必要</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><code>polling</code> / <code>llm</code> / <code>review</code> / <code>state</code> / <code>workDir</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>キー</th><th>型</th><th>必須</th><th>デフォルト</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>polling.intervalSeconds</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>60</code></td><td>PR走査の間隔(秒)</td></tr>
+            <tr><td><code>llm.baseUrl</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>OpenAI互換エンドポイント。<code>/chat/completions</code> の手前まで(例: <code>http://localhost:11434/v1</code>)</td></tr>
+            <tr><td><code>llm.model</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>使用するモデル名</td></tr>
+            <tr><td><code>llm.apiKey</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>設定時のみ <code>Authorization: Bearer ...</code> を付与</td></tr>
+            <tr><td><code>llm.temperature</code></td><td>double</td><td><span class="opt">任意</span></td><td><code>0.2</code></td><td>生成の温度</td></tr>
+            <tr><td><code>llm.maxTokens</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>4096</code></td><td>1回の応答の最大トークン数</td></tr>
+            <tr><td><code>llm.timeoutSeconds</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>300</code></td><td>LLM呼び出しのHTTPタイムアウト</td></tr>
+            <tr><td><code>review.maxDiffChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>60000</code></td><td>プロンプトに含めるdiffの最大文字数。超過分は切り詰め、その旨をLLMに明記</td></tr>
+            <tr><td><code>review.maxAdditionalFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>Nパスを通じてLLMが要求できる追加ファイルの総数上限</td></tr>
+            <tr><td><code>review.maxFileChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>50000</code></td><td>追加ファイル1件あたりの最大文字数</td></tr>
+            <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>3</code></td><td>LLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
+            <tr><td><code>state.filePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/review-state.json</code></td><td>レビュー済み状態の永続化先</td></tr>
+            <tr><td><code>workDir</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/repos</code></td><td>JGitのローカルbareミラーの保存先</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="review-yml-ref">
+      <h2><span class="eyebrow">05</span>.review.yml リファレンス</h2>
+      <p class="lede">
+        レビュー<strong>対象リポジトリ側</strong>のルートに置く設定です。存在しない、または解析に失敗した場合はデフォルト観点で継続します。
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>キー</th><th>型</th><th>デフォルト</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>language</code></td><td>string</td><td><code>ja</code></td><td>サマリ・指摘のレビュー言語</td></tr>
+            <tr><td><code>perspectives</code></td><td>string[]</td><td>デフォルト観点3件</td><td>リポジトリ全体に適用する共通観点</td></tr>
+            <tr><td><code>paths.&lt;glob&gt;.perspectives</code></td><td>string[]</td><td><code>[]</code></td><td>指定globにマッチする変更ファイルにのみ追加される観点(モノレポ対応)</td></tr>
+            <tr><td><code>paths.&lt;glob&gt;.inherit</code></td><td>boolean</td><td><code>true</code></td><td><code>false</code> にすると、このglobにマッチしたファイルには共通観点を適用しない</td></tr>
+            <tr><td><code>exclude</code></td><td>string[]</td><td><code>[]</code></td><td>diffから除外するglob(生成物・minifyファイル等)</td></tr>
+            <tr><td><code>contextFiles</code></td><td>string[]</td><td><code>[]</code></td><td>Nパスを待たず常にLLMへ渡すファイル(README等)</td></tr>
+            <tr><td><code>maxComments</code></td><td>int</td><td><code>10</code></td><td>PRコメントに表示する指摘事項の最大件数。超過分は件数のみ注記</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>モノレポでの観点解決の例</h3>
+      <p>
+        下記の <code>.review.yml</code> の場合、変更ファイルごとに適用される観点は図2のように解決されます。
+        <code>backend/**</code> は <code>inherit: false</code> のため、共通観点は適用されません。
+      </p>
+      <div class="code-block">
+        <span class="label">.review.yml(抜粋)</span>
+        <pre><span class="k">perspectives</span>:
+  - <span class="s">セキュリティ上の懸念(インジェクション、認可漏れ)</span>
+  - <span class="s">既存コードとの命名・設計の一貫性</span>
+<span class="k">paths</span>:
+  <span class="s">"frontend/**"</span>:
+    <span class="k">perspectives</span>:
+      - <span class="s">React hooksの依存配列漏れ</span>
+    <span class="k">inherit</span>: <span class="n">true</span>   <span class="c"># 共通観点も適用される</span>
+  <span class="s">"backend/**"</span>:
+    <span class="k">perspectives</span>:
+      - <span class="s">トランザクション境界の妥当性</span>
+    <span class="k">inherit</span>: <span class="n">false</span>  <span class="c"># 共通観点は適用されない</span></pre>
+      </div>
+
+      <div class="diagram">
+        <svg viewBox="0 0 720 300" role="img" aria-labelledby="diagMonoTitle diagMonoDesc" xmlns="http://www.w3.org/2000/svg">
+          <title id="diagMonoTitle">モノレポにおける観点グループの解決</title>
+          <desc id="diagMonoDesc">README.mdは共通観点のみ、frontend配下のファイルは共通観点とfrontend固有観点、backend配下のファイルはinherit falseによりbackend固有観点のみが適用される対応関係を示す図。</desc>
+          <defs>
+            <marker id="arrow-mono" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"></path>
+            </marker>
+          </defs>
+
+          <text x="20" y="24" font-size="11" class="lbl-mono" fill="var(--ink-faint)">変更ファイル</text>
+          <text x="520" y="24" font-size="11" class="lbl-mono" fill="var(--ink-faint)">適用される観点グループ</text>
+
+          <!-- files -->
+          <rect x="20" y="46" width="200" height="40" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.2"></rect>
+          <text x="30" y="70" font-size="12.5" class="lbl-mono" fill="var(--ink)">README.md</text>
+
+          <rect x="20" y="118" width="200" height="40" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.2"></rect>
+          <text x="30" y="142" font-size="12.5" class="lbl-mono" fill="var(--ink)">frontend/Button.tsx</text>
+
+          <rect x="20" y="190" width="200" height="40" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.2"></rect>
+          <text x="30" y="214" font-size="12.5" class="lbl-mono" fill="var(--ink)">backend/UserService.java</text>
+
+          <!-- groups -->
+          <rect x="500" y="30" width="200" height="46" rx="2" fill="var(--surface-2)" stroke="var(--ink)" stroke-width="1.2"></rect>
+          <text x="600" y="58" text-anchor="middle" font-size="12.5" fill="var(--ink)">共通観点</text>
+
+          <rect x="500" y="102" width="200" height="46" rx="2" fill="var(--teal-soft)" stroke="var(--teal)" stroke-width="1.3"></rect>
+          <text x="600" y="130" text-anchor="middle" font-size="12.5" fill="var(--ink)">frontend/**</text>
+
+          <rect x="500" y="174" width="200" height="46" rx="2" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"></rect>
+          <text x="600" y="202" text-anchor="middle" font-size="12.5" fill="var(--ink)">backend/**</text>
+
+          <text x="600" y="238" text-anchor="middle" font-size="10.5" class="lbl-mono" fill="var(--red)">inherit: false により共通観点は適用外</text>
+
+          <!-- edges -->
+          <path d="M220,66 L498,53" stroke="var(--ink-faint)" stroke-width="1.2" fill="none" marker-end="url(#arrow-mono)"></path>
+
+          <path d="M220,138 C330,80 400,60 498,53" stroke="var(--ink-faint)" stroke-width="1.2" fill="none" marker-end="url(#arrow-mono)"></path>
+          <path d="M220,138 L498,125" stroke="var(--teal)" stroke-width="1.3" fill="none" marker-end="url(#arrow-mono)"></path>
+
+          <path d="M220,210 L498,197" stroke="var(--accent)" stroke-width="1.3" fill="none" marker-end="url(#arrow-mono)"></path>
+        </svg>
+      </div>
+      <p class="diagram-caption">
+        図2: <code>README.md</code> は共通観点のみ、<code>Button.tsx</code> は共通観点と <code>frontend/**</code> 固有観点の両方、
+        <code>UserService.java</code> は <code>inherit: false</code> のため <code>backend/**</code> 固有観点のみが適用されます。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="cli">
+      <h2><span class="eyebrow">06</span>CLIオプション</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>オプション</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>--config &lt;path&gt;</code></td><td><code>config.yml</code> のパス。省略時は <code>./config.yml</code></td></tr>
+            <tr><td><code>--once</code></td><td>常駐せず1回だけ全リポジトリを走査して終了する</td></tr>
+            <tr><td><code>--dry-run</code></td><td>生成したレビューコメントをGitBucketに投稿せず、ログに出力するだけにする</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>不明なオプションを渡すと起動時に例外で停止し、内容がログに出力されます(終了コード1)。</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="flow">
+      <h2><span class="eyebrow">07</span>レビューの流れ(Nパス)</h2>
+      <p class="lede">
+        diffだけでは判断がつかない変更(呼び出し元だけが変わり、呼び出し先の実装が見えていない等)に対応するため、
+        LLMは追加ファイルを要求できます。ツールはそれを取得して再度同じスキーマで問い合わせます。この往復を
+        <code>review.maxPasses</code> 回まで繰り返します。
+      </p>
+
+      <div class="diagram">
+        <svg viewBox="0 0 700 430" role="img" aria-labelledby="diagLoopTitle diagLoopDesc" xmlns="http://www.w3.org/2000/svg">
+          <title id="diagLoopTitle">Nパスの制御フロー</title>
+          <desc id="diagLoopDesc">プロンプト送信からLLM応答のstatus判定、completeならコメント投稿へ、need_more_contextならファイル取得後に再送信し、maxPasses到達時は強制completeを指示する分岐を示すフローチャート。</desc>
+          <defs>
+            <marker id="arrow-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-muted)"></path>
+            </marker>
+          </defs>
+
+          <rect x="250" y="10" width="200" height="50" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.4"></rect>
+          <text x="350" y="32" text-anchor="middle" font-size="13" fill="var(--ink)">プロンプト送信</text>
+          <text x="350" y="48" text-anchor="middle" font-size="10.5" class="lbl-mono" fill="var(--ink-faint)">system + user(diff・観点)</text>
+
+          <!-- decision diamond -->
+          <polygon points="350,96 430,146 350,196 270,146" fill="none" stroke="var(--ink)" stroke-width="1.4"></polygon>
+          <text x="350" y="142" text-anchor="middle" font-size="12" fill="var(--ink)">LLM応答の</text>
+          <text x="350" y="158" text-anchor="middle" font-size="12" fill="var(--ink)">status は?</text>
+
+          <!-- complete branch -->
+          <rect x="440" y="236" width="220" height="50" rx="2" fill="var(--teal-soft)" stroke="var(--teal)" stroke-width="1.3"></rect>
+          <text x="550" y="258" text-anchor="middle" font-size="12.5" fill="var(--ink)">サマリ・指摘を整形</text>
+          <text x="550" y="274" text-anchor="middle" font-size="12.5" fill="var(--ink)">PRコメントとして投稿</text>
+          <g transform="translate(468,238)"><rect width="70" height="16" rx="8" fill="var(--teal-soft)" stroke="var(--teal)" stroke-width="1"></rect><text x="35" y="12" text-anchor="middle" font-size="9.5" class="lbl-mono" fill="var(--teal)">complete</text></g>
+
+          <!-- need_more_context / has budget -->
+          <rect x="40" y="236" width="220" height="50" rx="2" fill="var(--amber-soft)" stroke="var(--amber)" stroke-width="1.3"></rect>
+          <text x="150" y="258" text-anchor="middle" font-size="12.5" fill="var(--ink)">要求ファイルを取得</text>
+          <text x="150" y="274" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">重複除去・件数/文字数上限</text>
+
+          <!-- max passes reached -->
+          <rect x="40" y="330" width="220" height="50" rx="2" fill="none" stroke="var(--red)" stroke-width="1.3" stroke-dasharray="5 4"></rect>
+          <text x="150" y="352" text-anchor="middle" font-size="12" fill="var(--ink)">maxPasses到達</text>
+          <text x="150" y="368" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">強制completeを指示</text>
+
+          <!-- arrows -->
+          <path d="M350,60 L350,94" stroke="var(--ink-muted)" stroke-width="1.4" fill="none" marker-end="url(#arrow-loop)"></path>
+          <path d="M410,168 C440,200 470,216 500,234" stroke="var(--teal)" stroke-width="1.4" fill="none" marker-end="url(#arrow-loop)"></path>
+          <path d="M290,168 C230,190 180,206 150,234" stroke="var(--amber)" stroke-width="1.4" fill="none" marker-end="url(#arrow-loop)"></path>
+          <text x="180" y="205" font-size="10.5" class="lbl-mono" fill="var(--amber)">need_more_context</text>
+          <text x="440" y="205" font-size="10.5" class="lbl-mono" fill="var(--teal)">complete</text>
+
+          <!-- loop back if budget remains -->
+          <path d="M120,236 C60,150 90,60 248,32" stroke="var(--ink-muted)" stroke-width="1.3" fill="none" marker-end="url(#arrow-loop)"></path>
+          <text x="30" y="150" font-size="10.5" class="lbl-mono" fill="var(--ink-faint)" transform="rotate(-90 30 150)">pass &lt; maxPasses なら再送信</text>
+
+          <!-- to max passes -->
+          <path d="M150,286 L150,328" stroke="var(--red)" stroke-width="1.3" fill="none" marker-end="url(#arrow-loop)"></path>
+          <text x="160" y="310" font-size="10" class="lbl-mono" fill="var(--red)">pass ≥ maxPasses</text>
+          <path d="M260,355 C400,340 460,300 500,286" stroke="var(--red)" stroke-width="1.3" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-loop)"></path>
+        </svg>
+      </div>
+      <p class="diagram-caption">
+        図3: <code>need_more_context</code> でも残りパス数がある限りは再送信を繰り返し、上限に達すると強制的に
+        <code>complete</code> としての出力を指示してから投稿処理に進みます。JSONとしてパースできない応答は1回だけ矯正リトライします。
+      </p>
+
+      <h3>構造化出力スキーマ</h3>
+      <p>LLMには次のJSONスキーマ1つのみを出力するよう指示しています。</p>
+      <div class="code-block">
+        <span class="label">json</span>
+        <pre>{
+  <span class="k">"status"</span>: <span class="s">"complete"</span> | <span class="s">"need_more_context"</span>,
+  <span class="k">"requestedFiles"</span>: [ { <span class="k">"path"</span>: <span class="s">"..."</span>, <span class="k">"reason"</span>: <span class="s">"..."</span> } ],
+  <span class="k">"summary"</span>: <span class="s">"変更内容の要約(status=completeの場合は必須)"</span>,
+  <span class="k">"findings"</span>: [
+    { <span class="k">"file"</span>: <span class="s">"..."</span>, <span class="k">"line"</span>: <span class="n">123</span>,
+      <span class="k">"severity"</span>: <span class="s">"error"</span>|<span class="s">"warning"</span>|<span class="s">"info"</span>,
+      <span class="k">"perspective"</span>: <span class="s">"..."</span>, <span class="k">"comment"</span>: <span class="s">"..."</span> }
+  ]
+}</pre>
+      </div>
+      <p>
+        <span class="chip complete">complete</span> レビュー完了、コメントを投稿します。
+        <span class="chip context">need_more_context</span> 追加ファイルが必要。
+        <span class="chip error">パース失敗</span> 矯正リトライしても解析できない場合はそのPRのレビューを失敗として記録します。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="state">
+      <h2><span class="eyebrow">08</span>状態管理と冪等性</h2>
+      <p class="lede">
+        <code>state.filePath</code>(デフォルト <code>./data/review-state.json</code>)にPR毎のレビュー済み状態を永続化し、
+        同じコミットへの二重レビューを防ぎます。
+      </p>
+      <div class="code-block">
+        <span class="label">review-state.json</span>
+        <pre>{
+  <span class="k">"root/sample-repo#3"</span>: {
+    <span class="k">"reviewedHeadSha"</span>: <span class="s">"a1b2c3d..."</span>,
+    <span class="k">"reviewedAt"</span>: <span class="s">"2026-07-24T20:45:21Z"</span>,
+    <span class="k">"status"</span>: <span class="s">"reviewed"</span>,
+    <span class="k">"failureCount"</span>: <span class="n">0</span>
+  }
+}</pre>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <caption>判定ロジック(needsReview)</caption>
+          <thead><tr><th>状況</th><th>結果</th></tr></thead>
+          <tbody>
+            <tr><td>該当PRの記録が存在しない(新規PR)</td><td><span class="chip complete">レビューする</span></td></tr>
+            <tr><td>記録はあるが <code>head.sha</code> が変わった(push更新)</td><td><span class="chip complete">レビューする</span></td></tr>
+            <tr><td>同じ <code>head.sha</code> で <code>status: "failed"</code></td><td><span class="chip context">再試行する</span></td></tr>
+            <tr><td>同じ <code>head.sha</code> で <code>status: "reviewed"</code> または <code>"skipped"</code></td><td><span class="chip neutral">スキップ</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        レビュー処理が例外で失敗すると <code>failureCount</code> が加算され、<strong>3回</strong>連続で失敗すると
+        <code>status: "skipped"</code> となり、それ以降は同一コミットへの無限リトライを行いません。push更新があれば
+        <code>failureCount</code> はリセットされ、再度レビュー対象になります。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="encoding">
+      <h2><span class="eyebrow">09</span>文字コードの扱い</h2>
+      <div class="callout">
+        <span class="eyebrow">重要</span>
+        <p>
+          レビュー対象のソースコードは必ずしもUTF-8とは限りません(Shift_JIS・EUC-JP等の日本語コードベースも実運用では多く存在します)。
+        </p>
+      </div>
+      <p>
+        本ツールは <code>juniversalchardet</code> によるバイト列からの文字コード自動判定を、
+        JGitでのファイル読み込み・diff生成・GitBucket contents APIによる生コンテンツ取得のすべてで行います。
+        判定できない場合はUTF-8にフォールバックします。これにより、Shift_JIS等でコミットされたソースファイルであっても、
+        文字化けした内容がLLMに渡ることを防ぎます。
+      </p>
+      <p>
+        ただし、コミット単位パッチ連結によるAPIフォールバック経路(JGitのfetchに失敗した場合のみ使用)は、
+        GitBucketサーバー側が生成したJSON応答の文字列をそのまま利用するため、サーバー側のエンコーディング処理に依存します。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="troubleshooting">
+      <h2><span class="eyebrow">10</span>トラブルシューティング</h2>
+
+      <details class="qa" open>
+        <summary>JGitのfetchが認証エラーになる</summary>
+        <div class="a">
+          <p>
+            未設定時はAPIトークンをユーザー名・パスワード両方としてBasic認証を試みますが、
+            GitBucketの構成によっては通らないことがあります。<code>config.yml</code> の
+            <code>gitbucket.gitUsername</code> / <code>gitbucket.gitPassword</code> に実際のGitBucketアカウントの
+            認証情報を明示的に設定してください。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>PRにコメントが投稿されない</summary>
+        <div class="a">
+          <p><code>--dry-run</code> を付けたまま起動していないか確認してください。<code>--dry-run</code> 時はログに出力するのみで、
+            実際の投稿は行いません。また、ログに <code>GitBucketApiException</code> が出ていないか確認してください
+            (PR単位・リポジトリ単位で例外は隔離され、他のPR/リポジトリの処理は継続します)。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>同じPRが何度もレビューされる / 逆に更新してもレビューされない</summary>
+        <div class="a">
+          <p><code>state.filePath</code> のファイルが書き込み可能な場所を指しているか確認してください。
+            書き込みに失敗すると次回起動時に状態が失われ、再レビューが発生します。
+            逆にレビューされない場合は、該当キー(<code>owner/repo#番号</code>)の <code>status</code> が
+            <code>"skipped"</code>(3回失敗済み)になっていないか確認してください。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>diffが不完全、またはmerge-base差分と違う内容になる</summary>
+        <div class="a">
+          <p>ログに「JGitによるdiff取得に失敗したためAPIフォールバックを使用します」と出ていないか確認してください。
+            フォールバック経路はコミット単位パッチの連結による近似であり、厳密なmerge-base差分ではありません。
+            JGitのfetchが安定して成功するよう、まずは認証設定を見直してください。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>LLMの応答がJSONとして解析できずレビューが失敗する</summary>
+        <div class="a">
+          <p>1回だけ矯正リトライ(「スキーマ通りのJSONのみを出力してください」という指示を追加送信)を行いますが、
+            それでも解析できない場合はレビュー失敗として記録されます。<code>llm.temperature</code> を下げる、
+            使用モデルがJSONモード(<code>response_format</code>)に対応しているか確認する、といった対処が有効です。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>指摘件数が想定より少ない</summary>
+        <div class="a">
+          <p><code>.review.yml</code> の <code>maxComments</code> はPRコメントに表示する件数の上限です。
+            超過分は「他N件の指摘は表示上限のため省略されました」という注記になります(LLM自体はより多く検出している場合があります)。</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="appendix">
+      <h2><span class="eyebrow">11</span>付録: ディレクトリ構成</h2>
+      <p class="lede">実装のパッケージ構成です。挙動を詳しく追いたい場合の目印にしてください。</p>
+      <div class="code-block">
+        <span class="label">src/main/java/io/github/takahino/llmreviewer/</span>
+        <pre>Main.java                 <span class="c"># 引数解析・起動</span>
+config/                   <span class="c"># config.yml / .review.yml のモデルとローダー</span>
+gitbucket/                <span class="c"># REST APIクライアントとJSONモデル</span>
+git/                      <span class="c"># JGit主経路 + APIフォールバックのdiff/ファイル取得</span>
+llm/                      <span class="c"># OpenAI互換クライアント・プロンプト構築・応答パース</span>
+review/                   <span class="c"># 状態永続化・追加ファイル解決・コメント整形・オーケストレーション</span>
+util/                     <span class="c"># ログ設定・文字コード自動判定</span></pre>
+      </div>
+    </section>
+
+    <footer class="page-end">
+      gitbucket-llm-reviewer — 運用マニュアル。設定の全体は <code>README.md</code> / <code>README.jp.md</code> も参照してください。
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var links = Array.prototype.slice.call(document.querySelectorAll("[data-toc]"));
+  var sections = links
+    .map(function (a) { return document.querySelector(a.getAttribute("href")); })
+    .filter(Boolean);
+
+  if (!("IntersectionObserver" in window) || sections.length === 0) { return; }
+
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      var link = byId[entry.target.id];
+      if (!link) { return; }
+      if (entry.isIntersecting) {
+        links.forEach(function (l) { l.classList.remove("active"); });
+        link.classList.add("active");
+      }
+    });
+  }, { rootMargin: "-10% 0px -70% 0px", threshold: 0 });
+
+  sections.forEach(function (s) { observer.observe(s); });
+})();
+</script>
+</body>
+</html>

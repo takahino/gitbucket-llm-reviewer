@@ -1,0 +1,20 @@
+# このファイルを監視対象リポジトリのルートに ".review.yml" として配置する
+language: ja
+perspectives:                 # リポジトリ共通の観点
+  - "セキュリティ(インジェクション、認可漏れ)"
+  - "既存コードとの命名・設計の一貫性"
+paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点
+  "frontend/**":
+    perspectives:
+      - "React hooksの依存配列漏れ"
+      - "XSS(dangerouslySetInnerHTML等)"
+    inherit: true             # 共通観点も適用する(デフォルトtrue)
+  "backend/**":
+    perspectives:
+      - "トランザクション境界の妥当性"
+      - "N+1クエリ"
+exclude:                      # diffから除外するglob
+  - "**/*.min.js"
+contextFiles:                 # 常にLLMに提供するファイル(任意)
+  - "README.md"
+maxComments: 10
