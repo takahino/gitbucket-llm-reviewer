@@ -30,6 +30,15 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
         return truncate(diff, maxChars);
     }
 
+    /** 前回レビュー済みheadShaから現在のheadShaまでの増分diffを取得する(増分レビュー用)。 */
+    public DiffResult getIncrementalDiff(
+            String owner, String repo, String previousHeadSha, String currentHeadSha, List<String> excludeGlobs, int maxChars) {
+        RepositoryMirror mirror = mirrorFor(owner, repo);
+        mirror.fetch();
+        String diff = mirror.unifiedDiff(previousHeadSha, currentHeadSha, excludeGlobs);
+        return truncate(diff, maxChars);
+    }
+
     @Override
     public List<String> listFiles(String owner, String repo, String ref, int maxFiles) {
         return mirrorFor(owner, repo).listFiles(ref, maxFiles);

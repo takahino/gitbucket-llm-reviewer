@@ -28,7 +28,7 @@ public class PromptBuilder {
                   "requestedFiles": [ { "path": "対象ファイルの相対パス", "reason": "必要な理由" } ],
                   "summary": "変更内容の日本語サマリ(status=completeの場合は必須)",
                   "findings": [
-                    { "file": "相対パス", "line": 行番号(不明ならnull), "severity": "error"|"warning"|"info",
+                    { "file": "相対パス", "line": 変更後(new)ファイル基準の行番号(不明ならnull), "severity": "error"|"warning"|"info",
                       "perspective": "対応する観点", "comment": "指摘内容と修正提案" }
                   ]
                 }
@@ -46,7 +46,8 @@ public class PromptBuilder {
             List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups,
             List<String> repositoryFilePaths,
             Map<String, String> contextFiles,
-            DiffResult diff
+            DiffResult diff,
+            String incrementalPreviousHeadSha
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append("## プルリクエスト情報\n");
@@ -74,6 +75,10 @@ public class PromptBuilder {
         }
 
         sb.append("## 差分(unified diff)\n");
+        if (incrementalPreviousHeadSha != null) {
+            sb.append("(注意: これは前回レビュー(head: ").append(shortSha(incrementalPreviousHeadSha))
+                    .append(")以降の増分差分です。PR全体の差分ではありません)\n");
+        }
         if (diff.truncated()) {
             sb.append("(注意: 差分が上限文字数を超えたため切り詰められています)\n");
         }
@@ -108,5 +113,9 @@ public class PromptBuilder {
 
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    private static String shortSha(String sha) {
+        return sha.length() > 10 ? sha.substring(0, 10) : sha;
     }
 }

@@ -24,7 +24,7 @@ public record AppConfig(
         repositories = List.copyOf(repositories);
         Objects.requireNonNull(llm, "llm 設定は必須です");
         polling = polling != null ? polling : new PollingConfig(null);
-        review = review != null ? review : new ReviewConfig(null, null, null, null);
+        review = review != null ? review : new ReviewConfig(null, null, null, null, null);
         state = state != null ? state : new StateConfig(null);
         workDir = (workDir == null || workDir.isBlank()) ? "./data/repos" : workDir;
     }
@@ -67,7 +67,9 @@ public record AppConfig(
             String apiKey,
             Double temperature,
             Integer maxTokens,
-            Integer timeoutSeconds
+            Integer timeoutSeconds,
+            Integer retryMaxAttempts,
+            Integer retryBackoffMs
     ) {
         public LlmConfig {
             if (baseUrl == null || baseUrl.isBlank()) {
@@ -81,15 +83,21 @@ public record AppConfig(
             temperature = temperature == null ? 0.2 : temperature;
             maxTokens = maxTokens == null ? 4096 : maxTokens;
             timeoutSeconds = timeoutSeconds == null ? 300 : timeoutSeconds;
+            retryMaxAttempts = retryMaxAttempts == null ? 3 : retryMaxAttempts;
+            retryBackoffMs = retryBackoffMs == null ? 2000 : retryBackoffMs;
         }
     }
 
-    public record ReviewConfig(Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses) {
+    public record ReviewConfig(
+            Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses,
+            Boolean foldPreviousComments
+    ) {
         public ReviewConfig {
             maxDiffChars = maxDiffChars == null ? 60_000 : maxDiffChars;
             maxAdditionalFiles = maxAdditionalFiles == null ? 5 : maxAdditionalFiles;
             maxFileChars = maxFileChars == null ? 50_000 : maxFileChars;
             maxPasses = maxPasses == null ? 3 : maxPasses;
+            foldPreviousComments = foldPreviousComments == null ? true : foldPreviousComments;
         }
     }
 

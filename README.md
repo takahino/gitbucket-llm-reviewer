@@ -11,6 +11,10 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - **Per-repository review perspectives** — checks defined in a `.review.yml` file at the repository root.
 - **Monorepo support** — perspectives can be scoped per folder via glob patterns (e.g. different rules for `frontend/**` vs `backend/**`).
 - **Whole-repository consistency check (multi-pass)** — when a diff alone isn't enough to judge correctness (e.g. a call site changed without seeing the callee), the LLM can request additional files; the tool fetches them and re-prompts, up to a configurable number of passes.
+- **Pseudo inline comments** — GitBucket has no API for commenting directly on a diff line, so findings quote the surrounding code from the diff instead, getting close to an inline-comment experience.
+- **Incremental review** — the head SHA from the last successful review is persisted; when new commits are pushed, only the diff since that review is sent to the LLM instead of the whole PR (falls back to a full-PR diff if the previous head can no longer be resolved).
+- **LLM call retries** — connection failures, timeouts, and 5xx responses from the LLM server are retried with exponential backoff (4xx responses are not retried).
+- **Folds previous review comments** — before posting, the bot wraps its own past review comments in a `<details>` block so pushes don't pile up unreadable comment history.
 - **Not UTF-8 only** — source files are decoded with automatic charset detection (Shift_JIS, EUC-JP, UTF-8, ...), since real-world codebases are not always UTF-8.
 - **Resilient diff retrieval** — uses JGit against GitBucket's git smart HTTP endpoint as the primary diff source (GitBucket's REST API has no `pulls/:id/files` or compare endpoint), falling back to concatenated per-commit patches from the REST API if JGit fails.
 - **Posts review comments** back to the pull request, plus structured logging.
@@ -52,11 +56,14 @@ llm:
   temperature: 0.2
   maxTokens: 4096
   timeoutSeconds: 300
+  retryMaxAttempts: 3   # max attempts (including the first) on LLM call failure
+  retryBackoffMs: 2000  # wait time between retries in ms, doubles each attempt
 review:
   maxDiffChars: 60000
   maxAdditionalFiles: 5
   maxFileChars: 50000
   maxPasses: 3
+  foldPreviousComments: true  # fold the bot's previous review comments before posting a new one
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos
@@ -115,6 +122,9 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 
 - GitBucket's REST API has no `pulls/:id/files` or compare endpoint, so the primary diff path depends on JGit being able to fetch over git smart HTTP. If that authentication doesn't work out of the box, set `gitUsername`/`gitPassword` explicitly in `config.yml`.
 - The API-based diff fallback concatenates per-commit patches and is an approximation, not an exact merge-base diff.
+- GitBucket's REST API has no equivalent of GitHub's Pull Request Review Comments (commenting directly on a diff line), so findings quote the surrounding code inside the regular issue comment instead. It is not a true inline diff comment.
+- Incremental review only works while the previously reviewed head SHA's git object is still resolvable from the local mirror. After a force-push or mirror gc that removes it, the tool falls back to reviewing the full PR diff.
+- Folding previous comments (`review.foldPreviousComments`) assumes GitBucket exposes the issue comment list (GET) and update (PATCH) endpoints on GitHub v3-compatible paths (`/repos/:owner/:repo/issues/:number/comments`, `/repos/:owner/:repo/issues/comments/:id`). If the token lacks sufficient permission, folding is skipped and the new comment is still posted.
 
 ## License
 

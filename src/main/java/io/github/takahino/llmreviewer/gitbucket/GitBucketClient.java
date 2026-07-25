@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.gitbucket.model.CommitDetail;
 import io.github.takahino.llmreviewer.gitbucket.model.CommitRef;
+import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.util.CharsetDetector;
 
@@ -89,17 +90,38 @@ public class GitBucketClient {
 
     public void postIssueComment(String owner, String repo, int issueNumber, String commentBody) {
         URI uri = apiUri("/repos/%s/%s/issues/%d/comments".formatted(owner, repo, issueNumber), Map.of());
-        String requestJson;
-        try {
-            requestJson = jsonMapper.writeValueAsString(Map.of("body", commentBody));
-        } catch (IOException e) {
-            throw new GitBucketApiException("コメント本文のJSON化に失敗しました", e);
-        }
+        String requestJson = commentBodyJson(commentBody);
         HttpRequest request = newRequestBuilder(uri)
                 .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8))
                 .build();
         HttpResponse<String> response = send(request);
         requireSuccess(response);
+    }
+
+    /** PRの過去コメントを折りたたむため、Issueコメント一覧を取得する。 */
+    public List<IssueComment> listIssueComments(String owner, String repo, int issueNumber) {
+        URI uri = apiUri("/repos/%s/%s/issues/%d/comments".formatted(owner, repo, issueNumber), Map.of());
+        String body = sendJsonRequest(newRequestBuilder(uri).GET());
+        return parseList(body, IssueComment.class);
+    }
+
+    /** 既存のIssueコメント本文を更新する(過去のレビューコメントを折りたたむために使用)。 */
+    public void updateIssueComment(String owner, String repo, long commentId, String newBody) {
+        URI uri = apiUri("/repos/%s/%s/issues/comments/%d".formatted(owner, repo, commentId), Map.of());
+        String requestJson = commentBodyJson(newBody);
+        HttpRequest request = newRequestBuilder(uri)
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> response = send(request);
+        requireSuccess(response);
+    }
+
+    private String commentBodyJson(String commentBody) {
+        try {
+            return jsonMapper.writeValueAsString(Map.of("body", commentBody));
+        } catch (IOException e) {
+            throw new GitBucketApiException("コメント本文のJSON化に失敗しました", e);
+        }
     }
 
     private HttpRequest.Builder newRequestBuilder(URI uri) {
@@ -142,7 +164,7 @@ public class GitBucketClient {
         int status = response.statusCode();
         if (status < 200 || status >= 300) {
             throw new GitBucketApiException("GitBucket API がエラーを返しました(status=%d, url=%s): %s"
-                    .formatted(status, response.request().uri(), bodySnippet(response.body())));
+                    .formatted(status, response.request().uri(), bodySnippet(response.body())), status);
         }
     }
 

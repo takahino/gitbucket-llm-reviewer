@@ -11,6 +11,10 @@
 - **リポジトリ毎のレビュー観点** — リポジトリルートの `.review.yml` で定義した観点でチェックします。
 - **モノレポ対応** — `.review.yml` の `paths` でフォルダ(glob)毎に観点を追加できます(例: `frontend/**` と `backend/**` で異なる観点)。
 - **全体整合チェック(Nパス)** — diffだけでは判断がつかない場合(呼び出し元だけ変更され呼び出し先の実装が見えていない等)、LLMが追加ファイルを要求できます。ツールがそのファイルを取得して再問い合わせすることを、設定した回数まで繰り返します。
+- **疑似インラインコメント** — GitBucketにはPRのdiff行へ直接コメントするAPIが無いため、指摘箇所周辺のコードをコメント内に引用することで、インラインコメントに近い体験を提供します。
+- **増分レビュー** — 前回レビュー成功時のheadShaを記録しており、pushで新しいコミットが追加された場合はPR全体ではなく差分(前回レビュー以降のコミット)のみを対象にレビューします(取得できない場合はPR全体のレビューにフォールバックします)。
+- **LLM呼び出しのリトライ** — LLMサーバーへの接続断・タイムアウト・5xxエラーは指数バックオフで自動リトライします(4xxエラーはリトライしません)。
+- **レビューコメントの折りたたみ** — pushの度に新規コメントが積み上がって読みにくくならないよう、投稿前にbot自身の過去のレビューコメントを `<details>` で折りたたみます。
 - **UTF-8前提にしない** — 実運用のコードベースは必ずしもUTF-8とは限らない(Shift_JIS、EUC-JP等)ため、ソースファイルの文字コードを自動判定してデコードします。
 - **堅牢なdiff取得** — GitBucketのREST APIには `pulls/:id/files` やcompare相当のエンドポイントが無いため、GitBucketのgit smart HTTPに対するJGitでのmerge-base差分取得をプライマリとし、失敗時はREST APIのコミット単位パッチを連結するフォールバックに切り替えます。
 - **PRへのコメント投稿** — レビュー結果をPRコメントとして投稿し、あわせて構造化ログにも出力します。
@@ -52,11 +56,14 @@ llm:
   temperature: 0.2
   maxTokens: 4096
   timeoutSeconds: 300
+  retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
+  retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
 review:
   maxDiffChars: 60000
   maxAdditionalFiles: 5
   maxFileChars: 50000
   maxPasses: 3
+  foldPreviousComments: true  # 過去のレビューコメントを折りたたんでから新規コメントを投稿する
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos
@@ -115,6 +122,9 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 
 - GitBucketのREST APIには `pulls/:id/files` やcompare相当のエンドポイントが無いため、プライマリのdiff取得はJGitによるgit smart HTTP経由のfetchに依存します。認証がうまくいかない場合は `config.yml` の `gitUsername`/`gitPassword` を明示的に設定してください。
 - APIベースのdiffフォールバックはコミット単位パッチの連結による近似であり、厳密なmerge-base差分ではありません。
+- GitBucketのREST APIにはPRのdiff行への直接コメント(GitHubのPull Request Review Comments相当)が無いため、指摘箇所の周辺コードをIssueコメント内に引用する「疑似インライン化」で代替しています。真のdiff行コメントではありません。
+- 増分レビューは、前回レビュー済みheadShaのGitオブジェクトがローカルミラーから取得できる場合のみ有効です。force-pushやミラーのgc等で取得できない場合はPR全体のレビューにフォールバックします。
+- レビューコメントの折りたたみ(`review.foldPreviousComments`)は、GitBucketのIssueコメント一覧取得(GET)・編集(PATCH)APIがGitHub v3互換のパス(`/repos/:owner/:repo/issues/:number/comments`、`/repos/:owner/:repo/issues/comments/:id`)で提供されている前提です。トークンに十分な権限が無い場合は折りたたみをスキップし、新規コメント投稿は継続します。
 
 ## ライセンス
 

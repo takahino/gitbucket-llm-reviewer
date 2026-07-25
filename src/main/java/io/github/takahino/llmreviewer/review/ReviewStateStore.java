@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -32,6 +33,11 @@ public class ReviewStateStore {
 
     public static String key(String owner, String repo, int prNumber) {
         return "%s/%s#%d".formatted(owner, repo, prNumber);
+    }
+
+    /** 前回のレビュー状態を取得する(増分レビューの基準headSha判定に使用)。未レビューならempty。 */
+    public synchronized Optional<StateEntry> get(String key) {
+        return Optional.ofNullable(state.get(key));
     }
 
     /** 未レビューの新規PR、または push によりheadShaが変わった場合、あるいは前回失敗(未skip)の場合に true。 */

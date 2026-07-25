@@ -7,6 +7,7 @@ import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
+import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
@@ -39,7 +40,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final ReviewStateStore stateStore;
     private final AppConfig.ReviewConfig reviewConfig;
     private final String llmModelName;
-    private final boolean dryRun;
+    private final CommentPublisher commentPublisher;
 
     public ReviewOrchestrator(
             GitBucketClient gitBucketClient,
@@ -58,7 +59,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.stateStore = stateStore;
         this.reviewConfig = reviewConfig;
         this.llmModelName = llmModelName;
-        this.dryRun = dryRun;
+        this.commentPublisher = new CommentPublisher(gitBucketClient, reviewConfig.foldPreviousComments(), dryRun);
     }
 
     public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
@@ -80,11 +81,13 @@ public class ReviewOrchestrator implements AutoCloseable {
     private void doReview(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
         String owner = repoRef.owner();
         String repoName = repoRef.name();
+        String key = ReviewStateStore.key(owner, repoName, pr.number());
 
         RepoReviewConfig repoConfig = loadRepoReviewConfig(owner, repoName, pr.base().ref());
-        DiffResult diff = getDiffWithFallback(owner, repoName, pr, repoConfig.exclude());
-        List<String> changedFiles = extractChangedFiles(diff.diffText());
-        List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(changedFiles);
+        DiffOutcome diffOutcome = getDiffForReview(owner, repoName, pr, repoConfig.exclude(), stateStore.get(key));
+        DiffResult diff = diffOutcome.diff();
+        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(diff.diffText());
+        List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
         Map<String, String> contextFiles = loadContextFiles(owner, repoName, pr.head().sha(), repoConfig.contextFiles());
 
@@ -94,7 +97,8 @@ public class ReviewOrchestrator implements AutoCloseable {
 
         List<ChatMessage> conversation = new ArrayList<>();
         conversation.add(promptBuilder.systemMessage());
-        conversation.add(promptBuilder.initialUserMessage(pr, repoConfig, perspectiveGroups, fileTree, contextFiles, diff));
+        conversation.add(promptBuilder.initialUserMessage(
+                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, diff, diffOutcome.incrementalPreviousHeadSha()));
 
         Set<String> referencedFiles = new LinkedHashSet<>();
         ReviewOutput output;
@@ -117,13 +121,9 @@ public class ReviewOrchestrator implements AutoCloseable {
         }
 
         String commentBody = CommentFormatter.format(
-                output, pr.head().sha(), llmModelName, List.copyOf(referencedFiles), repoConfig.maxComments());
-        if (dryRun) {
-            LOGGER.info("[dry-run] %s#%d へのコメント投稿をスキップします:%n%s"
-                    .formatted(repoRef.fullName(), pr.number(), commentBody));
-        } else {
-            gitBucketClient.postIssueComment(owner, repoName, pr.number(), commentBody);
-        }
+                output, pr.head().sha(), llmModelName, List.copyOf(referencedFiles), repoConfig.maxComments(),
+                diffIndex, diffOutcome.incrementalPreviousHeadSha());
+        commentPublisher.publish(owner, repoName, pr.number(), commentBody);
     }
 
     /** LLMに問い合わせ、JSONパースに失敗した場合は1回だけ矯正リトライする。成功時は会話履歴にassistant応答を積む。 */
@@ -168,6 +168,31 @@ public class ReviewOrchestrator implements AutoCloseable {
         }
     }
 
+    /** diffOutcome.incrementalPreviousHeadSha() が非nullなら増分レビュー、nullならPR全体レビュー。 */
+    private record DiffOutcome(DiffResult diff, String incrementalPreviousHeadSha) {
+    }
+
+    /** 前回レビュー成功済みでheadShaが変化している場合は増分diffを試み、失敗・非該当時はPR全体のdiffにフォールバックする。 */
+    private DiffOutcome getDiffForReview(
+            String owner, String repoName, PullRequestInfo pr, List<String> excludeGlobs,
+            Optional<ReviewStateStore.StateEntry> previousState
+    ) {
+        if (previousState.isPresent()) {
+            ReviewStateStore.StateEntry prev = previousState.get();
+            if ("reviewed".equals(prev.status()) && !prev.reviewedHeadSha().equals(pr.head().sha())) {
+                try {
+                    DiffResult incrementalDiff = jGitProvider.getIncrementalDiff(
+                            owner, repoName, prev.reviewedHeadSha(), pr.head().sha(), excludeGlobs, reviewConfig.maxDiffChars());
+                    return new DiffOutcome(incrementalDiff, prev.reviewedHeadSha());
+                } catch (GitMirrorException e) {
+                    LOGGER.log(Level.WARNING,
+                            "増分diffの取得に失敗したため全量diffにフォールバックします: %s/%s".formatted(owner, repoName), e);
+                }
+            }
+        }
+        return new DiffOutcome(getDiffWithFallback(owner, repoName, pr, excludeGlobs), null);
+    }
+
     private DiffResult getDiffWithFallback(String owner, String repoName, PullRequestInfo pr, List<String> excludeGlobs) {
         try {
             return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
@@ -210,19 +235,6 @@ public class ReviewOrchestrator implements AutoCloseable {
             }
         }
         return result;
-    }
-
-    private static List<String> extractChangedFiles(String diffText) {
-        List<String> files = new ArrayList<>();
-        for (String line : diffText.lines().toList()) {
-            if (line.startsWith("diff --git a/")) {
-                int bIndex = line.indexOf(" b/");
-                if (bIndex > 0) {
-                    files.add(line.substring("diff --git a/".length(), bIndex));
-                }
-            }
-        }
-        return files;
     }
 
     /** グレースフル停止時にJGitのローカルミラー(Repositoryハンドル)を解放する。 */
