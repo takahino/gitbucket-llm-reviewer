@@ -1,42 +1,110 @@
-# 一般的なスペックの環境向けの標準プリセット。
-# ハイスペック環境(大きめのVRAM/RAM・大型モデル)向けの緩和済みプリセットは config.example_high.yml を参照。
+# =============================================================================
+# config.yml サンプル設定(ツール自体の挙動を制御する)
+#
+# このファイルを "config.yml" としてコピーして使う。config.yml は .gitignore
+# 済みなので、実トークンをコミットしてしまう心配はない。
+#
+# 一般的なスペックの環境・中型モデル向けの控えめな値をデフォルトにしている。
+# RTX5090級(VRAM 32GB以上)・RAM 128GB級のハイスペック環境で大型モデルを運用する
+# 場合は、各種上限を緩和した config.example_high.yml をベースにしてもよい。
+#
+# レビュー対象「リポジトリ側」の観点設定(.review.yml)は別ファイル。
+# サンプルは review.example.yml を参照。
+# =============================================================================
+
 gitbucket:
+  # GitBucketのベースURL。末尾スラッシュは自動で除去される。
   baseUrl: http://localhost:8080
+  # REST API用のAPIトークン。GitBucketの「個人用アクセストークン」発行画面で作成する
+  # (Web UIからのみ発行可能。REST APIでの発行エンドポイントはない)。
+  # Authorization: token <このトークン> ヘッダーとして送信される。
   token: "xxxxxxxx"
-  gitUsername: ""     # JGit fetch用(任意。空ならtokenをBasic認証のusername/passwordとして試行)
+  # JGit fetch(git smart HTTP)用のBasic認証ユーザー名(任意)。
+  # 空にした場合は token をユーザー名・パスワードの両方として試行する。
+  # それで認証が通らないGitBucket構成の場合のみ、実際のアカウント名を明示的に設定する。
+  gitUsername: ""
+  # 同パスワード。gitUsername を設定した場合はこちらも必ず設定すること。
   gitPassword: ""
+
+# 監視対象リポジトリの一覧。最低1件必要。ここに列挙したリポジトリのみポーリング対象になる。
 repositories:
-  - owner: root
-    name: sample-repo
+  - owner: root          # リポジトリのオーナー名(GitBucketのユーザー/組織名)
+    name: sample-repo    # リポジトリ名
+
 polling:
+  # open なPRを走査する間隔(秒)。--once 指定時はこの値は使われず1回だけ走査して終了する。
   intervalSeconds: 60
+
 llm:
+  # OpenAI互換エンドポイントのベースURL。"/chat/completions" の手前まで指定する
+  # (例: Ollama なら http://localhost:11434/v1、LM Studio/vLLM も同様のOpenAI互換パス)。
   baseUrl: http://localhost:11434/v1
+  # 使用するモデル名。エンドポイント側にロード/公開されているモデル名と一致させること。
   model: qwen2.5-coder:14b
-  apiKey: ""          # LM Studio/vLLM等でAPIキーが必要な場合のみ設定
+  # LM Studio/vLLM等、APIキー(Authorization: Bearer ...)を要求するサーバーでのみ設定する。
+  # Ollamaのようにキー不要なサーバーでは空のままでよい。
+  apiKey: ""
+  # 生成の温度。低いほど決定的(レビュー用途では再現性・一貫性を優先し低めが無難)。
   temperature: 0.2
+  # 1回の応答の最大トークン数。reasoning traceを出すモデルは出力が長くなりがちなので余裕を持たせる。
+  # 小さすぎるとJSON出力が途中で切れてパース失敗の原因になる。
   maxTokens: 4096
+  # LLM呼び出しのHTTPタイムアウト(秒)。大きめのdiff・reasoningモデルほど応答が遅くなる。
   timeoutSeconds: 300
-  retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
-  retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
+  # LLM呼び出し失敗時の最大試行回数(初回を含む)。
+  # 5xx・408(タイムアウト)・429(レート制限)は自動リトライの対象、4xx(400等のクライアントエラー)はリトライしない。
+  retryMaxAttempts: 3
+  # リトライ毎の待機時間(ミリ秒)。試行のたびに倍加する指数バックオフ。
+  retryBackoffMs: 2000
+
 review:
+  # プロンプトに含めるdiffの最大文字数。超過分は切り詰められ、その旨がLLMへの指示に明記される。
   maxDiffChars: 60000
+  # Nパス(need_more_context)を通じてLLMが要求できる追加ファイルの総数上限。
+  # 1回のパスあたりではなく、1回のレビューセッション全体を通じた累積上限。
   maxAdditionalFiles: 5
+  # Nパスで取得する追加ファイル1件あたりの最大文字数。超過分は切り詰められる。
   maxFileChars: 50000
+  # LLMとの往復(プロンプト送信→need_more_context→追加ファイル取得→再送信)の上限回数。
+  # 到達すると、それ以上ファイルを追加取得せず強制的に complete としての出力を指示する。
   maxPasses: 3
+
 rag:
-  enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
-  embeddingProvider: ollama             # ollama | openai-compatible
+  # trueにすると、リポジトリコード全体と .review.yml の knowledgeBase に指定した
+  # コーディング規約文書をベクトル検索し、diffに関連しそうなチャンクを「参考情報」として
+  # 事前提示する(既存のNパスによる申告制取得を置き換えるのではなく補完する)。
+  # embeddingサーバーに接続できない場合も、空の結果として扱いレビュー自体は継続する。
+  enabled: false
+  # embeddingモデルの提供元。ollama | openai-compatible(LM Studio/vLLM等)。
+  embeddingProvider: ollama
+  # embeddingエンドポイントのベースURL。
   embeddingBaseUrl: http://localhost:11434
-  embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
-  embeddingApiKey: ""                   # openai-compatible時のみ
+  # embeddingモデル名。事前に `ollama pull nomic-embed-text` 等で取得しておくこと。
+  embeddingModel: nomic-embed-text
+  # embeddingProvider: openai-compatible の場合のみ使用するAPIキー。
+  embeddingApiKey: ""
+  # ベクトル検索で取得するチャンク数(コード・コーディング規約文書それぞれについて)。
   topK: 5
+  # この類似度スコア未満のチャンクは「参考情報」の候補から除外する。
   minScore: 0.65
+  # ドキュメント分割時のチャンクサイズ(文字数の目安)。
   chunkSize: 500
+  # 隣接チャンク間のオーバーラップ(文字数)。文脈の途切れを緩和する。
   chunkOverlap: 50
+  # リポジトリコード全量インデックス時の対象ファイル数の上限。
   maxIndexFiles: 3000
+  # インデックス対象とするファイルの拡張子。
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
+  # ベクトルインデックス(InMemoryEmbeddingStoreのJSON永続化)の保存先。
+  # owner/repo単位でコード用・規約文書用の2種類のインデックスファイルが作られる。
   indexDir: ./data/rag-index
+
 state:
+  # PR毎のレビュー済み状態(reviewedHeadSha・status・failureCount)を永続化するJSONファイルのパス。
+  # 同じコミットへの二重レビューを防ぐ。3回連続で失敗したPRは status: "skipped" となり以後リトライしない
+  # (push更新でheadShaが変わればfailureCountはリセットされ再度レビュー対象になる)。
   filePath: ./data/review-state.json
+
+# JGitのローカルbareミラー(リポジトリ毎のgitオブジェクト)の保存先。
+# diff取得・ファイル読み込み・RAGインデックス構築のいずれもここにfetchしたミラーを使う。
 workDir: ./data/repos

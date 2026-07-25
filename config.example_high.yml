@@ -1,7 +1,14 @@
-# ハイスペック環境向けプリセット。RTX5090(VRAM 32GB)・RAM 128GB環境で
-# Qwen3.6-35B-A3B(5bit量子化、ネイティブコンテキスト262,144トークン)を
-# 運用する前提で、各種上限のデフォルト値を引き上げている。
-# より非力な環境・小型モデルで運用する場合は config.example.yml をベースにすること。
+# =============================================================================
+# config.yml サンプル設定(ハイスペック環境向けプリセット)
+#
+# RTX5090(VRAM 32GB)・RAM 128GB環境でQwen3.6-35B-A3B(5bit量子化、
+# ネイティブコンテキスト262,144トークン)を運用する前提で、各種上限のデフォルト値を
+# 引き上げている。より非力な環境・小型モデルで運用する場合は config.example.yml を
+# ベースにすること(各キーの意味・挙動の詳細な解説はそちらを参照)。
+#
+# ここでは config.example.yml との差分がある値にのみ、引き上げた理由を注記する。
+# =============================================================================
+
 gitbucket:
   baseUrl: http://localhost:8080
   token: "xxxxxxxx"
@@ -17,28 +24,32 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # LM Studio/vLLM等でAPIキーが必要な場合のみ設定
   temperature: 0.2
-  maxTokens: 16384
-  timeoutSeconds: 600
-  retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
-  retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
+  maxTokens: 16384      # ↑4096: reasoning traceを含む長い出力でも打ち切られないよう引き上げ
+  timeoutSeconds: 600   # ↑300: 大型モデル・長いreasoningによる応答遅延を許容
+  retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)。ハードウェア非依存のため据え置き
+  retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)。同上、据え置き
 review:
-  maxDiffChars: 200000
-  maxAdditionalFiles: 12
-  maxFileChars: 80000
-  maxPasses: 5
+  maxDiffChars: 200000      # ↑60000: 262,144トークン級の広いネイティブコンテキストを活かす
+  maxAdditionalFiles: 12    # ↑5: Nパスで全体整合を確認する余地を広げる
+  maxFileChars: 80000       # ↑50000: 大きめのファイルもNパスで丸ごと取得できるように
+  maxPasses: 5              # ↑3: 大規模な変更でも往復回数の上限に到達しにくくする
 rag:
   enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
   embeddingProvider: ollama             # ollama | openai-compatible
   embeddingBaseUrl: http://localhost:11434
   embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
   embeddingApiKey: ""                   # openai-compatible時のみ
-  topK: 10
+  topK: 10             # ↑5: 参考情報として提示する候補チャンクを増やす
   minScore: 0.65
-  chunkSize: 1000
-  chunkOverlap: 100
-  maxIndexFiles: 10000
+  chunkSize: 1000       # ↑500: 大きめのコンテキスト長を前提に、チャンクを大きくして分断を減らす
+  chunkOverlap: 100      # ↑50: chunkSize引き上げに合わせて比例的に拡大
+  maxIndexFiles: 10000   # ↑3000: 大規模リポジトリでも全量インデックスの対象から漏れにくくする
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
   indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos
+
+# 注意: maxTokens/maxDiffChars/maxAdditionalFiles/maxFileChars/maxPassesを
+# 大きくしすぎると、使用モデルのコンテキスト長を超過したり、1回のレビューが
+# 極端に長時間化したりする。実際に使うモデル・ハードウェアの余力に応じて調整すること。
