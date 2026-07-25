@@ -1,6 +1,6 @@
 package io.github.takahino.llmreviewer.git;
 
-import io.github.takahino.llmreviewer.config.AppConfig;
+import io.github.takahino.llmreviewer.scm.GitRemoteLocator;
 import io.github.takahino.llmreviewer.util.CharsetDetector;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -15,7 +15,6 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.RefSpec;
-import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
 
@@ -37,19 +36,10 @@ public class RepositoryMirror implements AutoCloseable {
     private final CredentialsProvider credentialsProvider;
     private Repository repository;
 
-    public RepositoryMirror(Path workDir, String owner, String repoName, AppConfig.GitBucketConfig gitBucketConfig) {
+    public RepositoryMirror(Path workDir, String owner, String repoName, GitRemoteLocator remoteLocator) {
         this.gitDir = workDir.resolve(owner).resolve(repoName + ".git");
-        this.remoteUrl = gitBucketConfig.baseUrl() + "/git/" + owner + "/" + repoName + ".git";
-        this.credentialsProvider = resolveCredentials(gitBucketConfig);
-    }
-
-    private static CredentialsProvider resolveCredentials(AppConfig.GitBucketConfig config) {
-        // gitUsername/gitPassword が明示設定されていればそれを優先。
-        // 未設定ならAPIトークンをBasic認証のusername/passwordとして試みる。
-        if (!config.gitUsername().isBlank()) {
-            return new UsernamePasswordCredentialsProvider(config.gitUsername(), config.gitPassword());
-        }
-        return new UsernamePasswordCredentialsProvider(config.token(), config.token());
+        this.remoteUrl = remoteLocator.remoteUrl(owner, repoName);
+        this.credentialsProvider = remoteLocator.credentialsProvider();
     }
 
     public synchronized void fetch() {

@@ -10,15 +10,15 @@ import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.llm.LlmResponseParser;
 import io.github.takahino.llmreviewer.llm.MentionReplyPromptBuilder;
 import io.github.takahino.llmreviewer.llm.model.MentionReplyOutput;
 import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.IssueComment;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -41,7 +41,7 @@ public class MentionReplyOrchestrator {
     private static final Logger LOGGER = Logger.getLogger(MentionReplyOrchestrator.class.getName());
     private static final int MAX_HISTORY_COMMENTS = 30;
 
-    private final GitBucketClient gitBucketClient;
+    private final ScmClient scmClient;
     private final JGitDiffProvider jGitProvider;
     private final ApiDiffProvider apiFallbackProvider;
     private final LlmClient llmClient;
@@ -55,7 +55,7 @@ public class MentionReplyOrchestrator {
 
     /** botUsername が null の場合、respondToMentionsIfAny は常に即returnし機能全体を無効化する(Bot名解決失敗時)。 */
     public MentionReplyOrchestrator(
-            GitBucketClient gitBucketClient,
+            ScmClient scmClient,
             JGitDiffProvider jGitProvider,
             ApiDiffProvider apiFallbackProvider,
             LlmClient llmClient,
@@ -67,20 +67,20 @@ public class MentionReplyOrchestrator {
             RepoReviewConfigFetcher repoReviewConfigFetcher,
             String botUsername
     ) {
-        this.gitBucketClient = gitBucketClient;
+        this.scmClient = scmClient;
         this.jGitProvider = jGitProvider;
         this.apiFallbackProvider = apiFallbackProvider;
         this.llmClient = llmClient;
         this.mentionStateStore = mentionStateStore;
         this.reviewConfig = reviewConfig;
         this.llmModelName = llmModelName;
-        this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
+        this.commentPublisher = new CommentPublisher(scmClient, dryRun);
         this.ragContextResolver = ragContextResolver;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
         this.botUsername = botUsername;
     }
 
-    public void respondToMentionsIfAny(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
+    public void respondToMentionsIfAny(AppConfig.RepositoryRef repoRef, PullRequest pr) {
         if (botUsername == null) {
             return;
         }
@@ -90,7 +90,7 @@ public class MentionReplyOrchestrator {
 
         List<IssueComment> comments;
         try {
-            comments = new ArrayList<>(gitBucketClient.listIssueComments(owner, repoName, pr.number()));
+            comments = new ArrayList<>(scmClient.listIssueComments(owner, repoName, pr.number()));
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "コメント一覧の取得に失敗しました: " + key, e);
             return;
@@ -139,7 +139,7 @@ public class MentionReplyOrchestrator {
     }
 
     private void respondToOne(
-            String owner, String repoName, PullRequestInfo pr, List<IssueComment> comments, IssueComment trigger
+            String owner, String repoName, PullRequest pr, List<IssueComment> comments, IssueComment trigger
     ) {
         String key = MentionStateStore.key(owner, repoName, pr.number());
         RepoReviewConfigLoader.ParseResult parseResult =
@@ -231,7 +231,7 @@ public class MentionReplyOrchestrator {
         }
     }
 
-    private DiffResult getDiffWithFallback(String owner, String repoName, PullRequestInfo pr, List<String> excludeGlobs) {
+    private DiffResult getDiffWithFallback(String owner, String repoName, PullRequest pr, List<String> excludeGlobs) {
         try {
             return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
         } catch (GitMirrorException e) {
@@ -242,7 +242,7 @@ public class MentionReplyOrchestrator {
     }
 
     private RagSearchResult searchRagContextSafely(
-            String owner, String repoName, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            String owner, String repoName, PullRequest pr, RepoReviewConfig repoConfig,
             DiffResult diff, List<String> changedFiles) {
         try {
             return ragContextResolver.search(owner, repoName, pr, repoConfig, diff, changedFiles);

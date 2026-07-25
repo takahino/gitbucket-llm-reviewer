@@ -17,6 +17,7 @@ class AppConfigWriterTest {
 
     private AppConfig sampleConfig(String baseUrl) {
         return new AppConfig(
+                "gitbucket",
                 new AppConfig.GitBucketConfig(baseUrl, "token-value", "", "", ""),
                 List.of(new AppConfig.RepositoryRef("owner", "repo")),
                 new AppConfig.PollingConfig(30),

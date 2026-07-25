@@ -1,8 +1,8 @@
 package io.github.takahino.llmreviewer.review;
 
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -16,20 +16,20 @@ public class PollingService {
 
     private static final Logger LOGGER = Logger.getLogger(PollingService.class.getName());
 
-    private final GitBucketClient gitBucketClient;
+    private final ScmClient scmClient;
     private final ReviewOrchestrator orchestrator;
     private final MentionReplyOrchestrator mentionReplyOrchestrator;
     private final List<AppConfig.RepositoryRef> repositories;
     private final int intervalSeconds;
 
     public PollingService(
-            GitBucketClient gitBucketClient,
+            ScmClient scmClient,
             ReviewOrchestrator orchestrator,
             MentionReplyOrchestrator mentionReplyOrchestrator,
             List<AppConfig.RepositoryRef> repositories,
             int intervalSeconds
     ) {
-        this.gitBucketClient = gitBucketClient;
+        this.scmClient = scmClient;
         this.orchestrator = orchestrator;
         this.mentionReplyOrchestrator = mentionReplyOrchestrator;
         this.repositories = repositories;
@@ -40,8 +40,8 @@ public class PollingService {
     public void runOnce() {
         for (AppConfig.RepositoryRef repo : repositories) {
             try {
-                List<PullRequestInfo> openPrs = gitBucketClient.listOpenPullRequests(repo.owner(), repo.name());
-                for (PullRequestInfo pr : openPrs) {
+                List<PullRequest> openPrs = scmClient.listOpenPullRequests(repo.owner(), repo.name());
+                for (PullRequest pr : openPrs) {
                     try {
                         orchestrator.reviewIfNeeded(repo, pr);
                     } catch (RuntimeException e) {

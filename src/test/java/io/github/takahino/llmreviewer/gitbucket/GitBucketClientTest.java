@@ -2,9 +2,9 @@ package io.github.takahino.llmreviewer.gitbucket;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.gitbucket.model.GitUser;
-import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
-import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
+import io.github.takahino.llmreviewer.scm.model.Account;
+import io.github.takahino.llmreviewer.scm.model.IssueComment;
+import io.github.takahino.llmreviewer.scm.model.RepositoryInfo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -87,7 +87,7 @@ class GitBucketClientTest {
         });
         server.start();
 
-        GitUser user = clientFor(server.getAddress().getPort()).getAuthenticatedUser();
+        Account user = clientFor(server.getAddress().getPort()).getAuthenticatedUser();
 
         assertEquals("bot-user", user.login());
     }
@@ -135,7 +135,7 @@ class GitBucketClientTest {
         });
         server.start();
 
-        RepositoryDetail detail = clientFor(server.getAddress().getPort()).getRepository("owner", "repo");
+        RepositoryInfo detail = clientFor(server.getAddress().getPort()).getRepository("owner", "repo");
 
         assertEquals("repo", detail.name());
         assertEquals("owner/repo", detail.fullName());

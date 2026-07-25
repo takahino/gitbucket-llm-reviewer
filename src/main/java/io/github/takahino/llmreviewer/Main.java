@@ -5,8 +5,6 @@ import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.AppConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
-import io.github.takahino.llmreviewer.gitbucket.BotIdentityResolver;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.rag.EmbeddingModelFactory;
 import io.github.takahino.llmreviewer.rag.EmbeddingRagContextResolver;
@@ -21,6 +19,9 @@ import io.github.takahino.llmreviewer.review.PollingService;
 import io.github.takahino.llmreviewer.review.RepoReviewConfigFetcher;
 import io.github.takahino.llmreviewer.review.ReviewOrchestrator;
 import io.github.takahino.llmreviewer.review.ReviewStateStore;
+import io.github.takahino.llmreviewer.scm.BotIdentityResolver;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.ScmClientFactory;
 import io.github.takahino.llmreviewer.util.LogSetup;
 import io.github.takahino.llmreviewer.web.WebUiServer;
 
@@ -57,20 +58,21 @@ public final class Main {
 
         logStartupSummary(config, arguments);
 
-        GitBucketClient gitBucketClient = new GitBucketClient(config.gitbucket());
-        JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), config.gitbucket());
-        ApiDiffProvider apiFallbackProvider = new ApiDiffProvider(gitBucketClient);
+        ScmClientFactory.ScmBundle scm = ScmClientFactory.create(config);
+        ScmClient scmClient = scm.client();
+        JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), scm.remoteLocator());
+        ApiDiffProvider apiFallbackProvider = new ApiDiffProvider(scmClient);
         LlmClient llmClient = new LlmClient(config.llm());
         ReviewStateStore stateStore = new ReviewStateStore(Path.of(config.state().filePath()), arguments.dryRun());
         RagContextResolver ragContextResolver = createRagContextResolver(config.rag(), jGitProvider);
-        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(gitBucketClient, jGitProvider);
+        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(scmClient, jGitProvider);
 
         ReviewOrchestrator orchestrator = new ReviewOrchestrator(
-                gitBucketClient, jGitProvider, apiFallbackProvider, llmClient, stateStore,
+                scmClient, jGitProvider, apiFallbackProvider, llmClient, stateStore,
                 config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
                 repoReviewConfigFetcher);
 
-        String botUsername = BotIdentityResolver.resolve(gitBucketClient, config.gitbucket().botUsername())
+        String botUsername = BotIdentityResolver.resolve(scmClient, config.gitbucket().botUsername())
                 .orElse(null);
         if (botUsername == null) {
             LOGGER.warning("Botユーザー名を解決できなかったため、メンション応答機能を無効化します"
@@ -81,12 +83,12 @@ public final class Main {
         MentionStateStore mentionStateStore =
                 new MentionStateStore(Path.of(config.state().mentionStateFilePath()), arguments.dryRun());
         MentionReplyOrchestrator mentionReplyOrchestrator = new MentionReplyOrchestrator(
-                gitBucketClient, jGitProvider, apiFallbackProvider, llmClient, mentionStateStore,
+                scmClient, jGitProvider, apiFallbackProvider, llmClient, mentionStateStore,
                 config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
                 repoReviewConfigFetcher, botUsername);
 
         PollingService pollingService = new PollingService(
-                gitBucketClient, orchestrator, mentionReplyOrchestrator,
+                scmClient, orchestrator, mentionReplyOrchestrator,
                 config.repositories(), config.polling().intervalSeconds());
 
         if (arguments.once()) {
@@ -105,13 +107,13 @@ public final class Main {
      * config.yml編集を反映するホットリロードの仕組みは無い。UIでの編集後は通常起動で再起動して反映する。
      */
     private static void runUiMode(AppConfig config, Path configPath, int port) {
-        GitBucketClient gitBucketClient = new GitBucketClient(config.gitbucket());
-        JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), config.gitbucket());
-        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(gitBucketClient, jGitProvider);
+        ScmClientFactory.ScmBundle scm = ScmClientFactory.create(config);
+        JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), scm.remoteLocator());
+        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(scm.client(), jGitProvider);
 
         WebUiServer server;
         try {
-            server = new WebUiServer(port, configPath, config, gitBucketClient, repoReviewConfigFetcher);
+            server = new WebUiServer(port, configPath, config, scm.client(), repoReviewConfigFetcher);
         } catch (IOException e) {
             jGitProvider.close();
             throw new UncheckedIOException("管理UIサーバーの起動に失敗しました(port=%d)".formatted(port), e);
@@ -140,7 +142,8 @@ public final class Main {
 
     private static void logStartupSummary(AppConfig config, Arguments arguments) {
         LOGGER.info("gitbucket-llm-reviewer を起動します");
-        LOGGER.info("GitBucket: %s (token=%s)".formatted(config.gitbucket().baseUrl(), mask(config.gitbucket().token())));
+        LOGGER.info("接続先(%s): %s (token=%s)"
+                .formatted(config.provider(), config.gitbucket().baseUrl(), mask(config.gitbucket().token())));
         LOGGER.info("監視対象リポジトリ: %s".formatted(
                 config.repositories().stream().map(AppConfig.RepositoryRef::fullName).toList()));
         LOGGER.info("LLM: %s (model=%s)".formatted(config.llm().baseUrl(), config.llm().model()));

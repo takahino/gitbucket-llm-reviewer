@@ -10,14 +10,14 @@ import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.llm.LlmResponseParser;
 import io.github.takahino.llmreviewer.llm.PromptBuilder;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,7 +46,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final RepoReviewConfigFetcher repoReviewConfigFetcher;
 
     public ReviewOrchestrator(
-            GitBucketClient gitBucketClient,
+            ScmClient scmClient,
             JGitDiffProvider jGitProvider,
             ApiDiffProvider apiFallbackProvider,
             LlmClient llmClient,
@@ -63,7 +63,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.stateStore = stateStore;
         this.reviewConfig = reviewConfig;
         this.llmModelName = llmModelName;
-        this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
+        this.commentPublisher = new CommentPublisher(scmClient, dryRun);
         this.ragContextResolver = ragContextResolver;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
     }
@@ -72,7 +72,7 @@ public class ReviewOrchestrator implements AutoCloseable {
      * dry-run時のレビュー状態記録抑止は {@link ReviewStateStore} 自身が担う(CommentPublisherと同様、
      * dry-run可否はその副作用を持つ collaborator が自己判断する形に揃えている)。
      */
-    public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
+    public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequest pr) {
         String key = ReviewStateStore.key(repoRef.owner(), repoRef.name(), pr.number());
         if (!stateStore.needsReview(key, pr.head().sha())) {
             return;
@@ -88,7 +88,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         }
     }
 
-    private void doReview(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
+    private void doReview(AppConfig.RepositoryRef repoRef, PullRequest pr) {
         String owner = repoRef.owner();
         String repoName = repoRef.name();
         String key = ReviewStateStore.key(owner, repoName, pr.number());
@@ -187,7 +187,7 @@ public class ReviewOrchestrator implements AutoCloseable {
 
     /** 前回レビュー成功済みでheadShaが変化している場合は増分diffを試み、失敗・非該当時はPR全体のdiffにフォールバックする。 */
     private DiffOutcome getDiffForReview(
-            String owner, String repoName, PullRequestInfo pr, List<String> excludeGlobs,
+            String owner, String repoName, PullRequest pr, List<String> excludeGlobs,
             Optional<ReviewStateStore.StateEntry> previousState
     ) {
         if (previousState.isPresent()) {
@@ -206,7 +206,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         return new DiffOutcome(getDiffWithFallback(owner, repoName, pr, excludeGlobs), null);
     }
 
-    private DiffResult getDiffWithFallback(String owner, String repoName, PullRequestInfo pr, List<String> excludeGlobs) {
+    private DiffResult getDiffWithFallback(String owner, String repoName, PullRequest pr, List<String> excludeGlobs) {
         try {
             return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
         } catch (GitMirrorException e) {
@@ -218,7 +218,7 @@ public class ReviewOrchestrator implements AutoCloseable {
 
     /** RAG検索の失敗(embeddingサーバー不通等)がレビュー全体を止めないよう、失敗時は空結果にフォールバックする。 */
     private RagSearchResult searchRagContextSafely(
-            String owner, String repoName, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            String owner, String repoName, PullRequest pr, RepoReviewConfig repoConfig,
             DiffResult diff, List<String> changedFiles) {
         try {
             return ragContextResolver.search(owner, repoName, pr, repoConfig, diff, changedFiles);

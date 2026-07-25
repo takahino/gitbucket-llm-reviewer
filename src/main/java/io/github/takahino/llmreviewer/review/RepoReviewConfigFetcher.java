@@ -3,8 +3,8 @@ package io.github.takahino.llmreviewer.review;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.RepositoryReader;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
+import io.github.takahino.llmreviewer.scm.ScmApiException;
+import io.github.takahino.llmreviewer.scm.ScmClient;
 
 import java.util.Optional;
 import java.util.logging.Level;
@@ -20,11 +20,11 @@ public class RepoReviewConfigFetcher {
     private static final Logger LOGGER = Logger.getLogger(RepoReviewConfigFetcher.class.getName());
     private static final String REVIEW_YML_PATH = ".review.yml";
 
-    private final GitBucketClient gitBucketClient;
+    private final ScmClient scmClient;
     private final RepositoryReader repositoryReader;
 
-    public RepoReviewConfigFetcher(GitBucketClient gitBucketClient, RepositoryReader repositoryReader) {
-        this.gitBucketClient = gitBucketClient;
+    public RepoReviewConfigFetcher(ScmClient scmClient, RepositoryReader repositoryReader) {
+        this.scmClient = scmClient;
         this.repositoryReader = repositoryReader;
     }
 
@@ -35,8 +35,8 @@ public class RepoReviewConfigFetcher {
     public Optional<String> fetchRaw(String owner, String repoName, String ref) {
         Optional<String> content;
         try {
-            content = gitBucketClient.getRawContent(owner, repoName, REVIEW_YML_PATH, ref);
-        } catch (GitBucketApiException e) {
+            content = scmClient.getRawContent(owner, repoName, REVIEW_YML_PATH, ref);
+        } catch (ScmApiException e) {
             LOGGER.log(Level.WARNING,
                     ".review.yml のAPI取得に失敗、JGitでの読み込みにフォールバックします: %s/%s".formatted(owner, repoName), e);
             content = readViaJGit(owner, repoName, REVIEW_YML_PATH, ref);
@@ -66,8 +66,8 @@ public class RepoReviewConfigFetcher {
         }
         if (content.isEmpty()) {
             try {
-                content = gitBucketClient.getRawContent(owner, repoName, path, ref);
-            } catch (GitBucketApiException ignored) {
+                content = scmClient.getRawContent(owner, repoName, path, ref);
+            } catch (ScmApiException ignored) {
                 content = Optional.empty();
             }
         }

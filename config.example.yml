@@ -12,6 +12,10 @@
 # サンプルは review.example.yml を参照。
 # =============================================================================
 
+# 接続先のGitホスティングサービス種別。現時点では gitbucket のみ実装済み
+# (github/gitlab/bitbucketは将来対応予定で、指定すると起動時エラーになる)。
+provider: gitbucket
+
 gitbucket:
   # GitBucketのベースURL。末尾スラッシュは自動で除去される。
   baseUrl: http://localhost:8080

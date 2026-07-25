@@ -1,7 +1,7 @@
 package io.github.takahino.llmreviewer.git;
 
-import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.scm.GitRemoteLocator;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -13,16 +13,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoCloseable {
 
     private final Path workDir;
-    private final AppConfig.GitBucketConfig gitBucketConfig;
+    private final GitRemoteLocator remoteLocator;
     private final Map<String, RepositoryMirror> mirrors = new ConcurrentHashMap<>();
 
-    public JGitDiffProvider(Path workDir, AppConfig.GitBucketConfig gitBucketConfig) {
+    public JGitDiffProvider(Path workDir, GitRemoteLocator remoteLocator) {
         this.workDir = workDir;
-        this.gitBucketConfig = gitBucketConfig;
+        this.remoteLocator = remoteLocator;
     }
 
     @Override
-    public DiffResult getUnifiedDiff(String owner, String repo, PullRequestInfo pr, List<String> excludeGlobs, int maxChars) {
+    public DiffResult getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs, int maxChars) {
         RepositoryMirror mirror = mirrorFor(owner, repo);
         mirror.fetch();
         String mergeBase = mirror.resolveMergeBase(pr.base().sha(), pr.head().sha());
@@ -51,7 +51,7 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
 
     private RepositoryMirror mirrorFor(String owner, String repo) {
         return mirrors.computeIfAbsent(owner + "/" + repo,
-                key -> new RepositoryMirror(workDir, owner, repo, gitBucketConfig));
+                key -> new RepositoryMirror(workDir, owner, repo, remoteLocator));
     }
 
     private static DiffResult truncate(String diff, int maxChars) {

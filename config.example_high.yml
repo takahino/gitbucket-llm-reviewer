@@ -9,6 +9,7 @@
 # ここでは config.example.yml との差分がある値にのみ、引き上げた理由を注記する。
 # =============================================================================
 
+provider: gitbucket
 gitbucket:
   baseUrl: http://localhost:8080
   token: "xxxxxxxx"
