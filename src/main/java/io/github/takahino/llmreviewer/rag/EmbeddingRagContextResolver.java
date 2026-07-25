@@ -10,7 +10,6 @@ import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 
 import java.util.List;
@@ -45,7 +44,8 @@ public class EmbeddingRagContextResolver implements RagContextResolver {
 
     @Override
     public RagSearchResult search(
-            String owner, String repo, PullRequestInfo pr, RepoReviewConfig repoConfig, DiffResult diff) {
+            String owner, String repo, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            DiffResult diff, List<String> changedFiles) {
         String queryText = truncate(diff.diffText(), MAX_QUERY_CHARS);
         if (queryText.isBlank()) {
             return RagSearchResult.empty();
@@ -54,7 +54,6 @@ public class EmbeddingRagContextResolver implements RagContextResolver {
         List<RetrievedChunk> relatedCode = searchStore(
                 codeIndexService.ensureIndexed(owner, repo, pr.head().sha()), queryText);
 
-        List<String> changedFiles = UnifiedDiffIndex.parse(diff.diffText()).changedFiles();
         List<String> knowledgeBasePaths = repoConfig.resolveKnowledgeBaseFor(changedFiles);
         List<RetrievedChunk> knowledgeBase = knowledgeBasePaths.isEmpty()
                 ? List.of()

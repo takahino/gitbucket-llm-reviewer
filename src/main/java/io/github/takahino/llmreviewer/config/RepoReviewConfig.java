@@ -46,32 +46,50 @@ public record RepoReviewConfig(
     public record PerspectiveGroup(String label, List<String> perspectives, List<String> matchedFiles) {
     }
 
-    public List<PerspectiveGroup> resolveGroupsFor(List<String> changedFilePaths) {
-        List<PerspectiveGroup> pathGroups = new ArrayList<>();
-        Set<String> excludedFromCommon = new HashSet<>();
+    /** 1つのpath(glob)設定が変更ファイル一覧にマッチした結果。resolveGroupsFor/resolveKnowledgeBaseForで共有する。 */
+    private record PathMatch(String glob, PathConfig config, List<String> matchedFiles) {
+    }
 
+    /** pathsの各globを変更ファイル一覧に照らし、マッチしたもの(空マッチは除く)を一覧化する。 */
+    private List<PathMatch> matchPaths(List<String> changedFilePaths) {
+        List<PathMatch> matches = new ArrayList<>();
         for (Map.Entry<String, PathConfig> entry : paths.entrySet()) {
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + entry.getKey());
             List<String> matchedFiles = changedFilePaths.stream()
                     .filter(f -> matcher.matches(Path.of(f)))
                     .toList();
-            if (matchedFiles.isEmpty()) {
-                continue;
-            }
-            if (!entry.getValue().inherit()) {
-                excludedFromCommon.addAll(matchedFiles);
-            }
-            if (!entry.getValue().perspectives().isEmpty()) {
-                pathGroups.add(new PerspectiveGroup(entry.getKey(), entry.getValue().perspectives(), matchedFiles));
+            if (!matchedFiles.isEmpty()) {
+                matches.add(new PathMatch(entry.getKey(), entry.getValue(), matchedFiles));
             }
         }
+        return matches;
+    }
+
+    /** inherit=falseのpathにマッチしたファイルは、共通観点・共通knowledgeBaseを継承しない。 */
+    private static Set<String> excludedFromCommon(List<PathMatch> matches) {
+        Set<String> excluded = new HashSet<>();
+        for (PathMatch match : matches) {
+            if (!match.config().inherit()) {
+                excluded.addAll(match.matchedFiles());
+            }
+        }
+        return excluded;
+    }
+
+    public List<PerspectiveGroup> resolveGroupsFor(List<String> changedFilePaths) {
+        List<PathMatch> matches = matchPaths(changedFilePaths);
+        Set<String> excludedFromCommon = excludedFromCommon(matches);
 
         List<PerspectiveGroup> groups = new ArrayList<>();
         List<String> commonFiles = changedFilePaths.stream().filter(f -> !excludedFromCommon.contains(f)).toList();
         if (!perspectives.isEmpty() && !commonFiles.isEmpty()) {
             groups.add(new PerspectiveGroup("共通", perspectives, commonFiles));
         }
-        groups.addAll(pathGroups);
+        for (PathMatch match : matches) {
+            if (!match.config().perspectives().isEmpty()) {
+                groups.add(new PerspectiveGroup(match.glob(), match.config().perspectives(), match.matchedFiles()));
+            }
+        }
         return groups;
     }
 
@@ -80,23 +98,13 @@ public record RepoReviewConfig(
      * resolveGroupsFor と同じ「pathにマッチしたファイルはinherit=falseなら共通を継承しない」ルールを踏襲する。
      */
     public List<String> resolveKnowledgeBaseFor(List<String> changedFilePaths) {
-        Set<String> excludedFromCommon = new HashSet<>();
+        List<PathMatch> matches = matchPaths(changedFilePaths);
+        Set<String> excludedFromCommon = excludedFromCommon(matches);
+
         LinkedHashSet<String> result = new LinkedHashSet<>();
-
-        for (Map.Entry<String, PathConfig> entry : paths.entrySet()) {
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + entry.getKey());
-            List<String> matchedFiles = changedFilePaths.stream()
-                    .filter(f -> matcher.matches(Path.of(f)))
-                    .toList();
-            if (matchedFiles.isEmpty()) {
-                continue;
-            }
-            if (!entry.getValue().inherit()) {
-                excludedFromCommon.addAll(matchedFiles);
-            }
-            result.addAll(entry.getValue().knowledgeBase());
+        for (PathMatch match : matches) {
+            result.addAll(match.config().knowledgeBase());
         }
-
         boolean hasCommonScopeFiles = changedFilePaths.stream().anyMatch(f -> !excludedFromCommon.contains(f));
         if (hasCommonScopeFiles) {
             result.addAll(knowledgeBase);

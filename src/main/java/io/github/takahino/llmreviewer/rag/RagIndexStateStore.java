@@ -16,9 +16,9 @@ import java.util.logging.Logger;
 /**
  * RAGインデックスの版識別子(key → headSha または コンテンツハッシュ)をJSONファイルに永続化する
  * 汎用ストア({@link io.github.takahino.llmreviewer.review.ReviewStateStore}と同型パターン)。
- * リポジトリコードインデックス(key=owner/repo, value=indexedHeadSha)と
- * コーディング規約インデックス(key=owner/repo:path, value=contentHash)の双方で、
- * ファイルパスを分けて別インスタンスとして使う。
+ * 単一インスタンスを {@link RepoCodeIndexService}(key=owner/repo, value=indexedHeadSha)と
+ * {@link KnowledgeBaseIndexService}(key=owner/repo:path, value=contentHash)の双方に共有注入し、
+ * キー空間の違いで衝突なく使い分ける({@code key(owner, repo)} と {@code key(owner, repo, path)} を参照)。
  */
 public class RagIndexStateStore {
 

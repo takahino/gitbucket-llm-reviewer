@@ -96,7 +96,8 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
         Map<String, String> contextFiles = loadContextFiles(owner, repoName, pr.head().sha(), repoConfig.contextFiles());
-        RagSearchResult ragResult = searchRagContextSafely(owner, repoName, pr, repoConfig, diff);
+        RagSearchResult ragResult =
+                searchRagContextSafely(owner, repoName, pr, repoConfig, diff, diffIndex.changedFiles());
 
         PromptBuilder promptBuilder = new PromptBuilder(reviewConfig.maxAdditionalFiles());
         ContextFileResolver contextFileResolver =
@@ -213,9 +214,10 @@ public class ReviewOrchestrator implements AutoCloseable {
 
     /** RAG検索の失敗(embeddingサーバー不通等)がレビュー全体を止めないよう、失敗時は空結果にフォールバックする。 */
     private RagSearchResult searchRagContextSafely(
-            String owner, String repoName, PullRequestInfo pr, RepoReviewConfig repoConfig, DiffResult diff) {
+            String owner, String repoName, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            DiffResult diff, List<String> changedFiles) {
         try {
-            return ragContextResolver.search(owner, repoName, pr, repoConfig, diff);
+            return ragContextResolver.search(owner, repoName, pr, repoConfig, diff, changedFiles);
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "RAG検索に失敗したため、参考情報なしで継続します: %s/%s".formatted(owner, repoName), e);
             return RagSearchResult.empty();
