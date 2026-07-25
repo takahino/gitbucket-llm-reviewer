@@ -43,6 +43,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final CommentPublisher commentPublisher;
     private final RagContextResolver ragContextResolver;
     private final RepoReviewConfigFetcher repoReviewConfigFetcher;
+    private final boolean dryRun;
 
     public ReviewOrchestrator(
             GitBucketClient gitBucketClient,
@@ -65,8 +66,14 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
         this.ragContextResolver = ragContextResolver;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
+        this.dryRun = dryRun;
     }
 
+    /**
+     * dry-run時はコメント投稿だけでなくレビュー状態の記録もスキップする。
+     * 記録してしまうと、dry-runで確認したPRをそのまま本番実行しても
+     * 「レビュー済み」扱いとなり実際のコメント投稿が行われなくなるため。
+     */
     public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
         String key = ReviewStateStore.key(repoRef.owner(), repoRef.name(), pr.number());
         if (!stateStore.needsReview(key, pr.head().sha())) {
@@ -75,11 +82,17 @@ public class ReviewOrchestrator implements AutoCloseable {
         LOGGER.info("レビュー対象PRを検出しました: %s (head=%s)".formatted(key, pr.head().sha()));
         try {
             doReview(repoRef, pr);
-            stateStore.markReviewed(key, pr.head().sha());
-            LOGGER.info("レビューを完了しました: " + key);
+            if (dryRun) {
+                LOGGER.info("レビューを完了しました(dry-runのためレビュー状態は記録しません): " + key);
+            } else {
+                stateStore.markReviewed(key, pr.head().sha());
+                LOGGER.info("レビューを完了しました: " + key);
+            }
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "PRレビューに失敗しました: " + key, e);
-            stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
+            if (!dryRun) {
+                stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
+            }
         }
     }
 
