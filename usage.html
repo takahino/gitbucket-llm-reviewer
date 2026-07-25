@@ -579,10 +579,15 @@ mvn package</pre>
           <h3>ツール側設定ファイルを作成する</h3>
           <div class="step-body">
             <p><code>config.example.yml</code> を <code>config.yml</code> としてコピーし、実際の値を設定します。
-              <code>config.yml</code> は <code>.gitignore</code> 済みなので、実トークンをコミットしてしまう心配はありません。</p>
+              <code>config.yml</code> は <code>.gitignore</code> 済みなので、実トークンをコミットしてしまう心配はありません。
+              RTX5090(VRAM 32GB)・RAM 128GB級のハイスペック環境で大型モデルを運用する場合は、各種上限を緩和済みの
+              <code>config.example_high.yml</code> をベースにしてもかまいません。</p>
             <div class="code-block">
               <span class="label">bash</span>
-              <pre>cp config.example.yml config.yml</pre>
+              <pre><span class="c"># 一般的な環境向け</span>
+cp config.example.yml config.yml
+<span class="c"># ハイスペック環境向け(VRAM/RAM潤沢・大型モデル運用時)</span>
+<span class="c"># cp config.example_high.yml config.yml</span></pre>
             </div>
             <p>最低限、以下の3項目は必ず自分の環境の値に書き換えてください(各項目の意味は「04 config.yml リファレンス」で解説)。</p>
             <div class="code-block">
@@ -691,10 +696,12 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
       <div class="callout">
         <span class="eyebrow">補足</span>
         <p>
-          上記のデフォルト値は、RTX5090(VRAM 32GB)・RAM 128GB環境でQwen3.6-35B-A3B(5bit量子化、ネイティブコンテキスト262,144トークン)を
-          使う前提でチューニングされています。より非力な環境・小型モデルで運用する場合は、
+          上記の「デフォルト」列はキー省略時にコード側が用いる値で、RTX5090(VRAM 32GB)・RAM 128GB環境でQwen3.6-35B-A3B
+          (5bit量子化、ネイティブコンテキスト262,144トークン)を使う前提でチューニングされています。この値をそのまま使いたい場合は
+          <code>config.example_high.yml</code> をベースにしてください。一方、標準の <code>config.example.yml</code> は
           <code>maxTokens</code> / <code>maxDiffChars</code> / <code>maxAdditionalFiles</code> / <code>maxFileChars</code> / <code>maxPasses</code>
-          を小さめの値に戻すことを推奨します(値を大きくしすぎるとモデルのコンテキスト長を超過したり、1回のレビューが極端に長時間化したりします)。
+          などをより非力な環境・小型モデル向けの小さめの値に明示的に設定しています(値を大きくしすぎるとモデルのコンテキスト長を
+          超過したり、1回のレビューが極端に長時間化したりします)。
         </p>
       </div>
 

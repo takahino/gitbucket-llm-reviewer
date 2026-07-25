@@ -38,7 +38,8 @@ mvn package
 
 ## 設定
 
-`config.example.yml` を `config.yml` としてコピーし(`.gitignore` 済み。実トークンは絶対にコミットしないこと)、値を設定してください。
+`config.example.yml` を `config.yml` としてコピーし(`.gitignore` 済み。実トークンは絶対にコミットしないこと)、値を設定してください。RTX5090(VRAM 32GB)・RAM 128GB級のハイスペック環境で大型モデルを運用する場合は、
+各種上限を緩和した `config.example_high.yml` をベースにすることもできます。
 
 ```yaml
 gitbucket:
@@ -56,26 +57,26 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # 一部のOpenAI互換サーバーでのみ必要
   temperature: 0.2
-  maxTokens: 16384
-  timeoutSeconds: 600
+  maxTokens: 4096
+  timeoutSeconds: 300
   retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
   retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
 review:
-  maxDiffChars: 200000
-  maxAdditionalFiles: 12
-  maxFileChars: 80000
-  maxPasses: 5
+  maxDiffChars: 60000
+  maxAdditionalFiles: 5
+  maxFileChars: 50000
+  maxPasses: 3
 rag:
   enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
   embeddingProvider: ollama             # ollama | openai-compatible
   embeddingBaseUrl: http://localhost:11434
   embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
   embeddingApiKey: ""                   # openai-compatible時のみ
-  topK: 10
+  topK: 5
   minScore: 0.65
-  chunkSize: 1000
-  chunkOverlap: 100
-  maxIndexFiles: 10000
+  chunkSize: 500
+  chunkOverlap: 50
+  maxIndexFiles: 3000
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
   indexDir: ./data/rag-index
 state:

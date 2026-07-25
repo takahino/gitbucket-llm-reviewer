@@ -38,7 +38,9 @@ Produces an executable fat-jar at `target/gitbucket-llm-reviewer.jar`.
 
 ## Configuration
 
-Copy `config.example.yml` to `config.yml` (git-ignored — never commit real tokens) and fill in the values:
+Copy `config.example.yml` to `config.yml` (git-ignored — never commit real tokens) and fill in the values. If you're running on high-spec hardware
+(e.g. an RTX5090 with 32GB VRAM and 128GB RAM) with a large local model, you can instead base your config on `config.example_high.yml`, which raises
+the various limits accordingly.
 
 ```yaml
 gitbucket:
@@ -56,26 +58,26 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # only needed by some OpenAI-compatible servers
   temperature: 0.2
-  maxTokens: 16384
-  timeoutSeconds: 600
+  maxTokens: 4096
+  timeoutSeconds: 300
   retryMaxAttempts: 3   # max attempts (including the first) on LLM call failure
   retryBackoffMs: 2000  # wait time between retries in ms, doubles each attempt
 review:
-  maxDiffChars: 200000
-  maxAdditionalFiles: 12
-  maxFileChars: 80000
-  maxPasses: 5
+  maxDiffChars: 60000
+  maxAdditionalFiles: 5
+  maxFileChars: 50000
+  maxPasses: 3
 rag:
   enabled: false                        # set true to enable vector-search context augmentation
   embeddingProvider: ollama             # ollama | openai-compatible
   embeddingBaseUrl: http://localhost:11434
   embeddingModel: nomic-embed-text      # pull it first, e.g. `ollama pull nomic-embed-text`
   embeddingApiKey: ""                   # only for openai-compatible
-  topK: 10
+  topK: 5
   minScore: 0.65
-  chunkSize: 1000
-  chunkOverlap: 100
-  maxIndexFiles: 10000
+  chunkSize: 500
+  chunkOverlap: 50
+  maxIndexFiles: 3000
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
   indexDir: ./data/rag-index
 state:
