@@ -162,6 +162,20 @@ Flags:
 
 Without `--once`, the process keeps running and polls every `polling.intervalSeconds`. It stops gracefully on SIGTERM (waits for the in-flight scan to finish, then releases JGit repository handles).
 
+### Mention-triggered follow-up questions and re-reviews
+
+Mention the bot's own GitBucket account in any PR comment to ask a follow-up question or request an additional review, independent of the regular polling-based review:
+
+```
+@review-bot Why is this null check needed here? Please also double-check the error handling.
+```
+
+- **Which name to mention**: the bot's username is resolved once at startup, either from `gitbucket.botUsername` if set, or automatically via `GET /api/v3/user` (the account that owns the configured `token`). Check the startup log line (`メンション応答機能を有効化します(botUsername=...)`) to see which name it's listening for. If resolution fails, mention-reply is disabled but regular polling review still runs.
+- **Who can trigger it**: anyone who can comment on the PR — there's no allowlist.
+- **Works without `.review.yml`**: unlike the regular review, this path stays active even when the repository has no `.review.yml`. In that case, your mention text itself becomes the review perspective sent to the LLM.
+- **Timing and dedup**: new mentions are picked up on the next poll (`polling.intervalSeconds`) and each one is answered exactly once — the last-processed comment ID is persisted per PR in `state.mentionStateFilePath`, so re-running `--once` never double-replies. On first ever seeing a PR (e.g. right after deploy), any mentions already present are not answered, to avoid a burst of replies to old comments.
+- **Editing a comment doesn't count**: adding `@botname` by editing an existing comment isn't detected (the comment ID doesn't change) — post a new comment instead.
+
 ### Admin UI (`--ui`)
 
 ```bash

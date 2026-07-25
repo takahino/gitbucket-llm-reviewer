@@ -433,11 +433,12 @@
       <li><span class="num">05</span><a href="#review-yml-ref" data-toc>.review.yml リファレンス</a></li>
       <li><span class="num">06</span><a href="#cli" data-toc>CLIオプション</a></li>
       <li><span class="num">07</span><a href="#flow" data-toc>レビューの流れ(Nパス)</a></li>
-      <li><span class="num">08</span><a href="#rag" data-toc>RAGによるコンテキスト拡張</a></li>
-      <li><span class="num">09</span><a href="#state" data-toc>状態管理と冪等性</a></li>
-      <li><span class="num">10</span><a href="#encoding" data-toc>文字コードの扱い</a></li>
-      <li><span class="num">11</span><a href="#troubleshooting" data-toc>トラブルシューティング</a></li>
-      <li><span class="num">12</span><a href="#appendix" data-toc>付録: ディレクトリ構成</a></li>
+      <li><span class="num">08</span><a href="#mention" data-toc>メンションでの追質問/追レビュー</a></li>
+      <li><span class="num">09</span><a href="#rag" data-toc>RAGによるコンテキスト拡張</a></li>
+      <li><span class="num">10</span><a href="#state" data-toc>状態管理と冪等性</a></li>
+      <li><span class="num">11</span><a href="#encoding" data-toc>文字コードの扱い</a></li>
+      <li><span class="num">12</span><a href="#troubleshooting" data-toc>トラブルシューティング</a></li>
+      <li><span class="num">13</span><a href="#appendix" data-toc>付録: ディレクトリ構成</a></li>
     </ol>
   </nav>
 
@@ -456,6 +457,7 @@
         <a href="#config-ref">config.yml 全項目</a>
         <a href="#review-yml-ref">.review.yml 全項目</a>
         <a href="#flow">Nパスの仕組み</a>
+        <a href="#mention">メンション応答</a>
         <a href="#rag">RAG設定</a>
         <a href="#troubleshooting">うまく動かない時</a>
       </div>
@@ -655,6 +657,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>token</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>REST API用のAPIトークン(<code>Authorization: token ...</code>)</td></tr>
             <tr><td><code>gitUsername</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>JGit fetch(git smart HTTP)用のBasic認証ユーザー名。空の場合は <code>token</code> をユーザー名・パスワード双方に使って試行する</td></tr>
             <tr><td><code>gitPassword</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>同パスワード。認証に失敗する場合は明示的に設定する</td></tr>
+            <tr><td><code>botUsername</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code>(=自動解決)</td><td>「08 メンションでの追質問/追レビュー」で自分自身として認識するユーザー名。空の場合は起動時に <code>GET /api/v3/user</code>(<code>token</code> の持ち主)から自動解決する</td></tr>
           </tbody>
         </table>
       </div>
@@ -689,6 +692,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>review.maxFileChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>80000</code></td><td>追加ファイル1件あたりの最大文字数</td></tr>
             <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>LLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
             <tr><td><code>state.filePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/review-state.json</code></td><td>レビュー済み状態の永続化先</td></tr>
+            <tr><td><code>state.mentionStateFilePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/mention-state.json</code></td><td>PR毎の「メンション応答済み最終コメントID」の永続化先(詳細は「08」)</td></tr>
             <tr><td><code>workDir</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/repos</code></td><td>JGitのローカルbareミラーの保存先</td></tr>
           </tbody>
         </table>
@@ -979,8 +983,85 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
     </section>
 
     <!-- ============================================================ -->
+    <section id="mention">
+      <h2><span class="eyebrow">08</span>メンションでの追質問/追レビュー</h2>
+      <p class="lede">
+        PRコメントでBot自身のGitBucketアカウントにメンションすると、07のポーリングによる自動レビューとは独立した経路で、
+        追質問や追加レビュー依頼にLLMが応答します。<strong><code>.review.yml</code> の有無に関わらず常時動作する</strong>ため、
+        観点が0件で自動レビュー自体はスキップされているリポジトリでも、この経路だけは機能します。
+      </p>
+
+      <div class="code-block">
+        <span class="label">PRコメントの例</span>
+        <pre>@review-bot このnullチェックはなぜ必要ですか?エラーハンドリングもあわせて確認してください。</pre>
+      </div>
+
+      <h3>Botユーザー名の解決</h3>
+      <p>
+        メンション対象として認識する自分自身のユーザー名は、起動時に一度だけ次の優先順位で解決されます。
+        どちらの場合も起動ログの <code>メンション応答機能を有効化します(botUsername=...)</code>
+        でどの名前を監視しているか確認できます。解決に失敗した場合はメンション応答機能のみが無効化され、
+        通常のポーリングレビューは継続して動作します(起動自体は失敗しません)。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>優先度</th><th>条件</th><th>採用される値</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>gitbucket.botUsername</code> が設定されている</td><td>その値をそのまま使用(APIは呼ばない)</td></tr>
+            <tr><td>2</td><td>未設定(空文字)</td><td><code>GET /api/v3/user</code> の応答(<code>gitbucket.token</code> の持ち主)から自動解決</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <span class="eyebrow">実運用でのアカウント分離</span>
+        <p>
+          自動解決を使う場合、Bot用に専用のGitBucketアカウントを作成しそのアカウントのトークンを
+          <code>gitbucket.token</code> に設定することを推奨します。人間の投稿者と同じアカウントのトークンを使うと、
+          そのアカウント自身が投稿したコメントは常に「Bot自身の発言」として除外されるため、そのアカウントからの
+          メンションには反応できません。
+        </p>
+      </div>
+
+      <h3>動作の詳細</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th>挙動</th></tr></thead>
+          <tbody>
+            <tr><td>呼び出せる人</td><td>PRにコメントできる人なら誰でも(許可リストによる制限はない)</td></tr>
+            <tr><td>検知タイミング</td><td>次回のポーリング(<code>polling.intervalSeconds</code>)でPRのコメント一覧を確認した時</td></tr>
+            <tr><td>二重応答防止</td><td>PR毎の処理済み最終コメントIDを <code>state.mentionStateFilePath</code> に永続化。同じコメントに二度応答しない</td></tr>
+            <tr><td>初めて観測したPR</td><td>既存のメンションには応答せず、その時点の最新コメントIDを基準点として記録するのみ(デプロイ直後の一括応答を防止)</td></tr>
+            <tr><td>コメント編集での追加</td><td>検知されない(コメントIDが変わらないため)。新規コメントとして投稿する必要がある</td></tr>
+            <tr><td>応答失敗時</td><td>そのコメント以降の処理を打ち切り、次回のポーリングで再試行する(質問をサイレントに握りつぶさない)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><code>.review.yml</code> の有無による観点の扱い</h3>
+      <p>
+        LLMへのプロンプトには常に「メンションコメント本文」がそのまま渡されますが、<code>.review.yml</code>
+        から観点が解決できた場合はそれも併せて渡されます。観点が無い場合はメンション文面そのものが観点になり、
+        観点がある場合はそれを踏まえつつメンションの質問に答えます(観点が上書き・無視されることはありません)。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>状態</th><th>プロンプトに含まれる内容</th></tr></thead>
+          <tbody>
+            <tr><td><code>.review.yml</code> あり(観点を解決できた)</td><td>「## レビュー観点」セクション(このリポジトリの観点一覧)+「## ユーザーからの質問/追加レビュー依頼」セクション(メンション本文)の両方</td></tr>
+            <tr><td><code>.review.yml</code> なし/観点0件</td><td>「## ユーザーからの質問/追加レビュー依頼」セクション(メンション本文)のみ。この文面が実質的な観点として扱われる</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        diff取得・追加コンテキストファイルの収集・RAGによる参考情報の付与・<code>need_more_context</code>
+        による追加ファイル要求(「07 レビューの流れ」と同じ往復ループ)は、通常のレビューと同様にこの経路でも行われます。
+        応答は新規のPRコメントとして投稿されます。
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
     <section id="rag">
-      <h2><span class="eyebrow">08</span>RAGによるコンテキスト拡張</h2>
+      <h2><span class="eyebrow">09</span>RAGによるコンテキスト拡張</h2>
       <p class="lede">
         <code>rag.enabled: true</code> にすると、langchain4j経由でリポジトリコード全体と<code>.review.yml</code>の
         <code>knowledgeBase</code>に指定したコーディング規約文書をベクトル検索し、diffに関連しそうなチャンクを
@@ -1033,7 +1114,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 
     <!-- ============================================================ -->
     <section id="state">
-      <h2><span class="eyebrow">09</span>状態管理と冪等性</h2>
+      <h2><span class="eyebrow">10</span>状態管理と冪等性</h2>
       <p class="lede">
         <code>state.filePath</code>(デフォルト <code>./data/review-state.json</code>)にPR毎のレビュー済み状態を永続化し、
         同じコミットへの二重レビューを防ぎます。
@@ -1066,11 +1147,29 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
         <code>status: "skipped"</code> となり、それ以降は同一コミットへの無限リトライを行いません。push更新があれば
         <code>failureCount</code> はリセットされ、再度レビュー対象になります。
       </p>
+
+      <h3>メンション応答の状態(<code>mention-state.json</code>)</h3>
+      <p>
+        「08 メンションでの追質問/追レビュー」用に、<code>state.mentionStateFilePath</code>
+        (デフォルト <code>./data/mention-state.json</code>)へPR毎の「処理済み最終コメントID」を永続化します。
+        <code>review-state.json</code> とは別ファイル・別の判定ロジックで、headShaではなくコメントID(単調増加)のみを追跡します。
+      </p>
+      <div class="code-block">
+        <span class="label">mention-state.json</span>
+        <pre>{
+  <span class="k">"root/sample-repo#3"</span>: <span class="n">21</span>
+}</pre>
+      </div>
+      <p>
+        値は「このPRでID 21までのコメントは処理済み」を意味し、次回ポーリングでは <code>id &gt; 21</code>
+        のコメントのみをメンション検知の対象にします。<code>--dry-run</code> 時は <code>review-state.json</code>
+        と同様にこのファイルへの書き込みも行われません。
+      </p>
     </section>
 
     <!-- ============================================================ -->
     <section id="encoding">
-      <h2><span class="eyebrow">10</span>文字コードの扱い</h2>
+      <h2><span class="eyebrow">11</span>文字コードの扱い</h2>
       <div class="callout">
         <span class="eyebrow">重要</span>
         <p>
@@ -1091,7 +1190,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 
     <!-- ============================================================ -->
     <section id="troubleshooting">
-      <h2><span class="eyebrow">11</span>トラブルシューティング</h2>
+      <h2><span class="eyebrow">12</span>トラブルシューティング</h2>
 
       <details class="qa" open>
         <summary>JGitのfetchが認証エラーになる</summary>
@@ -1162,11 +1261,33 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             時間がかかるため、大きめのリポジトリでは1回目のレビューでは十分な検索結果が得られないことがあります。</p>
         </div>
       </details>
+      <details class="qa">
+        <summary>PRコメントで <code>@botname</code> にメンションしても応答されない</summary>
+        <div class="a">
+          <p>まず起動ログの <code>メンション応答機能を有効化します(botUsername=...)</code> を確認し、
+            意図した名前が表示されているか確認してください。表示されず「Botユーザー名を解決できなかったため、
+            メンション応答機能を無効化します」と出ている場合は、<code>gitbucket.token</code> の持ち主のユーザー名取得
+            (<code>GET /api/v3/user</code>)に失敗しています。<code>gitbucket.botUsername</code> を明示的に設定してください。
+            また、メンションした投稿者が<strong>Bot自身と同じアカウント</strong>だと自己投稿として除外され反応しません
+            (「08」の「実運用でのアカウント分離」を参照)。デプロイ直後・そのPRを初めて観測した回はまだ存在するメンションに
+            応答しない仕様のため、応答させたい場合は基準点記録後にあらためてメンションを投稿してください。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>同じメンションに何度も応答される / 逆に一度も応答されない</summary>
+        <div class="a">
+          <p><code>state.mentionStateFilePath</code> のファイルが書き込み可能な場所を指しているか確認してください。
+            <code>review-state.json</code> と同様、書き込みに失敗すると次回起動時に基準点が失われ、
+            過去のメンションへ再度応答してしまうことがあります。一度も応答されない場合は、直前の応答処理が例外で
+            失敗し、そのコメント以降の処理が打ち切られたまま次回ポーリングで再試行され続けている可能性があるため、
+            <code>MentionReplyOrchestrator</code> 関連のWARNINGログを確認してください。</p>
+        </div>
+      </details>
     </section>
 
     <!-- ============================================================ -->
     <section id="appendix">
-      <h2><span class="eyebrow">12</span>付録: ディレクトリ構成</h2>
+      <h2><span class="eyebrow">13</span>付録: ディレクトリ構成</h2>
       <p class="lede">実装のパッケージ構成です。挙動を詳しく追いたい場合の目印にしてください。</p>
       <div class="code-block">
         <span class="label">src/main/java/io/github/takahino/llmreviewer/</span>
@@ -1176,7 +1297,7 @@ gitbucket/                <span class="c"># REST APIクライアントとJSONモ
 git/                      <span class="c"># JGit主経路 + APIフォールバックのdiff/ファイル取得</span>
 llm/                      <span class="c"># langchain4jベースのChatModelクライアント・プロンプト構築・応答パース</span>
 rag/                      <span class="c"># langchain4jによるベクトル検索(コード全体・コーディング規約のRAG)</span>
-review/                   <span class="c"># 状態永続化・追加ファイル解決・コメント整形・オーケストレーション</span>
+review/                   <span class="c"># 状態永続化・追加ファイル解決・コメント整形・オーケストレーション(自動レビュー/メンション応答の両方)</span>
 util/                     <span class="c"># ログ設定・文字コード自動判定</span></pre>
       </div>
     </section>
