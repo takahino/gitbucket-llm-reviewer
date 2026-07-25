@@ -70,7 +70,7 @@ public final class Main {
         ReviewOrchestrator orchestrator = new ReviewOrchestrator(
                 scmClient, jGitProvider, apiFallbackProvider, llmClient, stateStore,
                 config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
-                repoReviewConfigFetcher);
+                repoReviewConfigFetcher, config.gitbucket().baseUrl());
 
         String botUsername = BotIdentityResolver.resolve(scmClient, config.gitbucket().botUsername())
                 .orElse(null);

@@ -27,10 +27,27 @@ class PromptBuilderTest {
     }
 
     @Test
+    void systemMessageUsesJapaneseWhenLanguageIsJaOrUnset() {
+        String contentJa = ((dev.langchain4j.data.message.SystemMessage) promptBuilder.systemMessage("ja")).text();
+        String contentNull = ((dev.langchain4j.data.message.SystemMessage) promptBuilder.systemMessage(null)).text();
+
+        assertTrue(contentJa.contains("日本語"));
+        assertTrue(contentNull.contains("日本語"));
+    }
+
+    @Test
+    void systemMessageReflectsNonJapaneseLanguage() {
+        String content = ((dev.langchain4j.data.message.SystemMessage) promptBuilder.systemMessage("en")).text();
+
+        assertTrue(content.contains("「en」で記述してください"));
+        assertFalse(content.contains("日本語"));
+    }
+
+    @Test
     void initialUserMessageOmitsRagSectionsWhenResultEmpty() {
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
-                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null);
+                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of());
 
         String text = ((UserMessage) message).singleText();
         assertFalse(text.contains("関連コード候補"));
@@ -45,7 +62,7 @@ class PromptBuilderTest {
 
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
-                ragResult, new DiffResult("diff --git a/x b/x", false), null);
+                ragResult, new DiffResult("diff --git a/x b/x", false), null, Map.of());
 
         String text = ((UserMessage) message).singleText();
         assertTrue(text.contains("関連コード候補"));
