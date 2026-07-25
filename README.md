@@ -15,6 +15,7 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - **RAG context augmentation (optional)** — with `rag.enabled: true`, langchain4j is used to vector-search the whole repository and coding-standard documents (`.review.yml`'s `knowledgeBase`) and surface relevant code/standard excerpts as "reference information" up front. This complements rather than replaces the multi-pass request-based fetch above, and the review still proceeds if the embedding server is unreachable.
 - **Pseudo inline comments** — GitBucket has no API for commenting directly on a diff line, so findings quote the surrounding code from the diff instead, getting close to an inline-comment experience.
 - **Incremental review** — the head SHA from the last successful review is persisted; when new commits are pushed, only the diff since that review is sent to the LLM instead of the whole PR (falls back to a full-PR diff if the previous head can no longer be resolved).
+- **Large PRs are batched, not truncated** — a PR's diff is split into multiple LLM requests along file boundaries (`review.maxDiffChars` per batch) instead of being cut off, so large changes still get every file reviewed. A safety cap (`review.maxDiffBatches`) bounds the number of LLM calls per PR; any files beyond that cap are listed by name in the summary comment instead of silently disappearing.
 - **LLM call retries** — connection failures, timeouts, and 5xx responses from the LLM server are retried with exponential backoff (4xx responses are not retried).
 - **Not UTF-8 only** — source files are decoded with automatic charset detection (Shift_JIS, EUC-JP, UTF-8, ...), since real-world codebases are not always UTF-8.
 - **Resilient diff retrieval** — uses JGit against GitBucket's git smart HTTP endpoint as the primary diff source (GitBucket's REST API has no `pulls/:id/files` or compare endpoint), falling back to concatenated per-commit patches from the REST API if JGit fails.
@@ -65,7 +66,8 @@ llm:
   retryMaxAttempts: 3   # max attempts (including the first) on LLM call failure
   retryBackoffMs: 2000  # wait time between retries in ms, doubles each attempt
 review:
-  maxDiffChars: 60000
+  maxDiffChars: 60000    # per-batch diff size limit (exceeding it splits into multiple batches instead of truncating)
+  maxDiffBatches: 20     # max number of batches per PR; anything beyond this is listed as skipped instead of silently lost
   maxAdditionalFiles: 5
   maxFileChars: 50000
   maxPasses: 3
@@ -189,11 +191,12 @@ Because `AppConfig` is loaded once at process startup and injected into the poll
 ## How it works
 
 1. `PollingService` lists open PRs for each configured repository and asks `ReviewOrchestrator` to review any PR whose head commit hasn't been reviewed yet.
-2. `ReviewOrchestrator` loads `.review.yml` (via GitBucket contents API, falling back to JGit), computes the diff (JGit merge-base diff primary, per-commit-patch concatenation as fallback), resolves the perspectives to apply (common + monorepo path groups), and gathers optional context files plus any per-perspective `.review/` context files. If the resolved perspectives are empty (missing/unparsable `.review.yml`, empty `perspectives`, etc.), the review for that PR is skipped.
-3. If `rag.enabled: true`, the diff is used as a query to vector-search the repository code (indexed fully on first run, incrementally afterward) and coding-standard documents (`.review.yml`'s `knowledgeBase`), surfacing related chunks as "reference information" (falls back to empty and continues the review if the embedding server is unreachable).
-4. The LLM is prompted with the diff, perspectives, repository file list, and RAG reference information. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
-5. The final summary and findings are formatted into Markdown and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
-6. Independently of the above, `PollingService` also asks `MentionReplyOrchestrator` to check each PR for mentions. It resolves the bot's own username at startup (`gitbucket.botUsername`, or auto-resolved via `GET /api/v3/user` if blank) and, for any unprocessed comment mentioning it, feeds the LLM `.review.yml` (if any), the diff, the prior comment history, and the mention comment's text, then posts the reply as a new comment. The last processed comment ID is persisted per PR, so the same comment is never answered twice. This path runs independently of the regular review and stays active even when `.review.yml` is missing, in which case the mention comment's own text is used as the perspective.
+2. `ReviewOrchestrator` loads `.review.yml` (via GitBucket contents API, falling back to JGit) and computes the diff (JGit merge-base diff primary, per-commit-patch concatenation as fallback). If the resolved perspectives (common + monorepo path groups) are empty (missing/unparsable `.review.yml`, empty `perspectives`, etc.), the review for that PR is skipped.
+3. If the diff exceeds `review.maxDiffChars`, `DiffBatcher` splits it into multiple batches along file boundaries (capped at `review.maxDiffBatches`; any files beyond that cap are listed as skipped in the summary instead of being silently dropped). Every step below runs per batch, with perspective resolution, context gathering, and RAG search all scoped to that batch's changed files.
+4. If `rag.enabled: true`, each batch's diff is used as a query to vector-search the repository code (indexed fully on first run, incrementally afterward) and coding-standard documents (`.review.yml`'s `knowledgeBase`), surfacing related chunks as "reference information" (falls back to empty and continues the review if the embedding server is unreachable).
+5. For each batch, the LLM is prompted with that batch's diff, perspectives, repository file list, and RAG reference information. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
+6. Findings and summaries from all batches are merged, formatted into Markdown, and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
+7. Independently of the above, `PollingService` also asks `MentionReplyOrchestrator` to check each PR for mentions. It resolves the bot's own username at startup (`gitbucket.botUsername`, or auto-resolved via `GET /api/v3/user` if blank) and, for any unprocessed comment mentioning it, feeds the LLM `.review.yml` (if any), the diff, the prior comment history, and the mention comment's text, then posts the reply as a new comment. The last processed comment ID is persisted per PR, so the same comment is never answered twice. This path runs independently of the regular review and stays active even when `.review.yml` is missing, in which case the mention comment's own text is used as the perspective.
 
 ## Known limitations
 

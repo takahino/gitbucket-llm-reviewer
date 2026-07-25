@@ -78,6 +78,22 @@ public final class CommentFormatter {
             List<ReferencedFile> referencedFiles,
             String incrementalPreviousHeadSha
     ) {
+        return formatSummary(output, headSha, modelName, referencedFiles, incrementalPreviousHeadSha, List.of());
+    }
+
+    /**
+     * 変更サマリのみを含むコメント本文を組み立てる。{@code skippedFiles}が非空の場合、
+     * バッチ数上限({@code review.maxDiffBatches})超過により今回のレビュー対象外となった
+     * ファイル一覧を明記するセクションを追加する(黙って見落とさせないための表示)。
+     */
+    public static String formatSummary(
+            ReviewOutput output,
+            String headSha,
+            String modelName,
+            List<ReferencedFile> referencedFiles,
+            String incrementalPreviousHeadSha,
+            List<String> skippedFiles
+    ) {
         StringBuilder sb = new StringBuilder();
         // マーカー行(HTMLコメント)の直後に空行を挟まないと、Markdownパーサーが後続の見出しやコード
         // ブロックまでHTMLブロックの一部とみなし、生テキストのまま表示してしまうことがあるため。
@@ -85,8 +101,22 @@ public final class CommentFormatter {
         sb.append("## 変更サマリ\n");
         appendIncrementalScopeNote(sb, incrementalPreviousHeadSha);
         sb.append(isBlank(output.summary()) ? "(サマリなし)" : output.summary()).append("\n\n");
+        appendSkippedFilesNote(sb, skippedFiles);
         appendFooter(sb, headSha, modelName, referencedFiles);
         return sb.toString();
+    }
+
+    /** バッチ数上限超過でレビュー対象外となったファイルがあれば、その一覧をサマリに明記する。 */
+    private static void appendSkippedFilesNote(StringBuilder sb, List<String> skippedFiles) {
+        if (skippedFiles.isEmpty()) {
+            return;
+        }
+        sb.append("## サイズ上限のため今回のレビュー対象外となったファイル\n");
+        sb.append("差分が大きいため、設定されたバッチ数上限(review.maxDiffBatches)を超えた以下のファイルは今回レビューされていません。\n");
+        for (String path : skippedFiles) {
+            sb.append("- ").append(path).append('\n');
+        }
+        sb.append('\n');
     }
 
     /** 指摘事項のみを含むコメント本文を組み立てる。 */

@@ -22,21 +22,19 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
     }
 
     @Override
-    public DiffResult getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs, int maxChars) {
+    public String getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs) {
         RepositoryMirror mirror = mirrorFor(owner, repo);
         mirror.fetch();
         String mergeBase = mirror.resolveMergeBase(pr.base().sha(), pr.head().sha());
-        String diff = mirror.unifiedDiff(mergeBase, pr.head().sha(), excludeGlobs);
-        return DiffTruncator.truncate(diff, maxChars);
+        return mirror.unifiedDiff(mergeBase, pr.head().sha(), excludeGlobs);
     }
 
     /** 前回レビュー済みheadShaから現在のheadShaまでの増分diffを取得する(増分レビュー用)。 */
-    public DiffResult getIncrementalDiff(
-            String owner, String repo, String previousHeadSha, String currentHeadSha, List<String> excludeGlobs, int maxChars) {
+    public String getIncrementalDiff(
+            String owner, String repo, String previousHeadSha, String currentHeadSha, List<String> excludeGlobs) {
         RepositoryMirror mirror = mirrorFor(owner, repo);
         mirror.fetch();
-        String diff = mirror.unifiedDiff(previousHeadSha, currentHeadSha, excludeGlobs);
-        return DiffTruncator.truncate(diff, maxChars);
+        return mirror.unifiedDiff(previousHeadSha, currentHeadSha, excludeGlobs);
     }
 
     @Override

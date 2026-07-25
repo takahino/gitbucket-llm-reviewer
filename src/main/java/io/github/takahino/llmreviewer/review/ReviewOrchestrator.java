@@ -6,6 +6,7 @@ import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
+import io.github.takahino.llmreviewer.git.DiffBatcher;
 import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
@@ -17,6 +18,7 @@ import io.github.takahino.llmreviewer.llm.model.Finding;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
+import io.github.takahino.llmreviewer.rag.RetrievedChunk;
 import io.github.takahino.llmreviewer.scm.ScmClient;
 import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
@@ -31,7 +33,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-/** 1 PR に対するレビューパイプライン全体(diff取得 → 観点解決 → LLM Nパス → コメント投稿)を担う。 */
+/** 1 PR に対するレビューパイプライン全体(diff取得 → バッチ分割 → 観点解決 → LLM Nパス(バッチ毎) → 結果結合 → コメント投稿)を担う。 */
 public class ReviewOrchestrator implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger(ReviewOrchestrator.class.getName());
@@ -105,39 +107,117 @@ public class ReviewOrchestrator implements AutoCloseable {
         }
         RepoReviewConfig repoConfig = parseResult.config();
         DiffOutcome diffOutcome = getDiffForReview(owner, repoName, pr, repoConfig.exclude(), stateStore.get(key));
-        DiffResult diff = diffOutcome.diff();
-        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(diff.diffText());
-        List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
-        if (perspectiveGroups.isEmpty()) {
+        String rawDiff = diffOutcome.rawDiffText();
+
+        // PR全体版のdiffIndex。疑似インラインコメントのスニペット引用・観点の要否判定に使う
+        // (バッチ分割はLLM送信単位の話であり、コメント整形はPR全体でまとめて行うためマージ不要)。
+        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(rawDiff);
+        List<RepoReviewConfig.PerspectiveGroup> prPerspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
+        if (prPerspectiveGroups.isEmpty()) {
             LOGGER.info("適用可能な観点が0件のためレビューをスキップします(.review.yml未配置/パース失敗、または空観点): " + key);
             return;
         }
+
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
         Map<String, String> contextFiles = loadContextFiles(owner, repoName, pr.head().sha(), repoConfig.contextFiles());
-        List<String> reviewContextPaths = perspectiveGroups.stream()
-                .flatMap(g -> g.perspectives().stream())
-                .flatMap(e -> e.resolvedContextPaths().stream())
-                .distinct()
-                .toList();
-        Map<String, String> perspectiveContextFiles =
-                loadContextFiles(owner, repoName, pr.head().sha(), reviewContextPaths);
-        RagSearchResult ragResult =
-                searchRagContextSafely(owner, repoName, pr, repoConfig, diff, diffIndex.changedFiles());
-        Map<String, String> fullFileContext = collectFullFileContextIfEnabled(
-                owner, repoName, pr.head().sha(), diffIndex.changedFiles(), fileTree);
+
+        DiffBatcher.Result batching =
+                DiffBatcher.split(rawDiff, reviewConfig.maxDiffChars(), reviewConfig.maxDiffBatches());
+        if (!batching.skippedFiles().isEmpty()) {
+            LOGGER.warning("バッチ数上限(%d)を超えたため%d件のファイルは今回レビューされません: %s"
+                    .formatted(reviewConfig.maxDiffBatches(), batching.skippedFiles().size(), key));
+        }
 
         PromptBuilder promptBuilder = new PromptBuilder(reviewConfig.maxAdditionalFiles());
         ContextFileResolver contextFileResolver =
                 new ContextFileResolver(jGitProvider, reviewConfig.maxAdditionalFiles(), reviewConfig.maxFileChars());
         FindingValidator findingValidator = new FindingValidator(jGitProvider);
 
-        List<ChatMessage> conversation = new ArrayList<>();
-        conversation.add(promptBuilder.systemMessage(repoConfig.language()));
-        conversation.add(promptBuilder.initialUserMessage(
-                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, perspectiveContextFiles, ragResult, diff,
-                diffOutcome.incrementalPreviousHeadSha(), fullFileContext));
-
         Set<String> referencedFiles = new LinkedHashSet<>();
+        List<Finding> allFindings = new ArrayList<>();
+        List<String> summaries = new ArrayList<>();
+        Map<String, String> allPerspectiveContextFiles = new LinkedHashMap<>();
+        List<RetrievedChunk> allRagRelatedCode = new ArrayList<>();
+        List<RetrievedChunk> allRagKnowledgeBase = new ArrayList<>();
+        Map<String, String> allFullFileContext = new LinkedHashMap<>();
+
+        List<DiffBatcher.Batch> batches = batching.batches();
+        for (int i = 0; i < batches.size(); i++) {
+            DiffBatcher.Batch batch = batches.get(i);
+            List<String> batchChangedFiles = batch.changedFiles();
+            List<RepoReviewConfig.PerspectiveGroup> batchGroups = repoConfig.resolveGroupsFor(batchChangedFiles);
+            if (batchGroups.isEmpty()) {
+                continue;
+            }
+
+            List<String> reviewContextPaths = batchGroups.stream()
+                    .flatMap(g -> g.perspectives().stream())
+                    .flatMap(e -> e.resolvedContextPaths().stream())
+                    .distinct()
+                    .toList();
+            Map<String, String> perspectiveContextFiles =
+                    loadContextFiles(owner, repoName, pr.head().sha(), reviewContextPaths);
+            RagSearchResult ragResult =
+                    searchRagContextSafely(owner, repoName, pr, repoConfig, batch.diff(), batchChangedFiles);
+            Map<String, String> fullFileContext = collectFullFileContextIfEnabled(
+                    owner, repoName, pr.head().sha(), batchChangedFiles, fileTree);
+
+            allPerspectiveContextFiles.putAll(perspectiveContextFiles);
+            allRagRelatedCode.addAll(ragResult.relatedCode());
+            allRagKnowledgeBase.addAll(ragResult.knowledgeBase());
+            allFullFileContext.putAll(fullFileContext);
+
+            PromptBuilder.BatchInfo batchInfo = batches.size() > 1
+                    ? new PromptBuilder.BatchInfo(i + 1, batches.size(), batchChangedFiles)
+                    : PromptBuilder.BatchInfo.single();
+
+            List<ChatMessage> conversation = new ArrayList<>();
+            conversation.add(promptBuilder.systemMessage(repoConfig.language()));
+            conversation.add(promptBuilder.initialUserMessage(
+                    pr, repoConfig, batchGroups, fileTree, contextFiles, perspectiveContextFiles, ragResult,
+                    batch.diff(), diffOutcome.incrementalPreviousHeadSha(), fullFileContext, batchInfo));
+
+            ReviewOutput output = runBatchConversation(
+                    conversation, promptBuilder, contextFileResolver, findingValidator,
+                    owner, repoName, pr, referencedFiles);
+
+            allFindings.addAll(output.findings());
+            if (!isBlank(output.summary())) {
+                summaries.add(output.summary());
+            }
+        }
+
+        ReviewOutput merged = new ReviewOutput("complete", List.of(), String.join("\n\n", summaries), allFindings);
+        RagSearchResult mergedRag = new RagSearchResult(allRagRelatedCode, allRagKnowledgeBase);
+
+        List<CommentFormatter.ReferencedFile> referencedContextFiles = collectReferencedContextFiles(
+                contextFiles, allPerspectiveContextFiles, mergedRag, allFullFileContext, referencedFiles);
+        String fileBlobBaseUrl = "%s/%s/%s/blob/%s".formatted(scmBaseUrl, owner, repoName, pr.head().sha());
+        List<String> commentBodies = List.of(
+                CommentFormatter.formatSummary(
+                        merged, pr.head().sha(), llmModelName, referencedContextFiles,
+                        diffOutcome.incrementalPreviousHeadSha(), batching.skippedFiles()),
+                CommentFormatter.formatFindings(
+                        merged, pr.head().sha(), llmModelName, referencedContextFiles, repoConfig.maxComments(),
+                        diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl)
+        );
+        commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
+    }
+
+    /**
+     * 1バッチ分の会話をNパス(need_more_context対応)まで完結させる。
+     * 既存のmulti-passループ・findings検証・強制確定ロジックをバッチ単位でそのまま適用する。
+     */
+    private ReviewOutput runBatchConversation(
+            List<ChatMessage> conversation,
+            PromptBuilder promptBuilder,
+            ContextFileResolver contextFileResolver,
+            FindingValidator findingValidator,
+            String owner,
+            String repoName,
+            PullRequest pr,
+            Set<String> referencedFiles
+    ) {
         ReviewOutput output;
         int pass = 0;
         while (true) {
@@ -169,23 +249,11 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<FindingValidator.ValidationIssue> finalIssues =
                 findingValidator.validate(owner, repoName, pr.head().sha(), output.findings());
         if (!finalIssues.isEmpty()) {
-            LOGGER.warning("findings検証で%d件の不正なfile/lineが見つかったため除外して投稿します: %s"
-                    .formatted(finalIssues.size(), key));
+            LOGGER.warning("findings検証で%d件の不正なfile/lineが見つかったため除外します: %s/%s#%d"
+                    .formatted(finalIssues.size(), owner, repoName, pr.number()));
             output = withoutInvalidFindings(output, finalIssues);
         }
-
-        List<CommentFormatter.ReferencedFile> referencedContextFiles = collectReferencedContextFiles(
-                contextFiles, perspectiveContextFiles, ragResult, fullFileContext, referencedFiles);
-        String fileBlobBaseUrl = "%s/%s/%s/blob/%s".formatted(scmBaseUrl, owner, repoName, pr.head().sha());
-        List<String> commentBodies = List.of(
-                CommentFormatter.formatSummary(
-                        output, pr.head().sha(), llmModelName, referencedContextFiles,
-                        diffOutcome.incrementalPreviousHeadSha()),
-                CommentFormatter.formatFindings(
-                        output, pr.head().sha(), llmModelName, referencedContextFiles, repoConfig.maxComments(),
-                        diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl)
-        );
-        commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
+        return output;
     }
 
     /**
@@ -246,7 +314,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     }
 
     /** diffOutcome.incrementalPreviousHeadSha() が非nullなら増分レビュー、nullならPR全体レビュー。 */
-    private record DiffOutcome(DiffResult diff, String incrementalPreviousHeadSha) {
+    private record DiffOutcome(String rawDiffText, String incrementalPreviousHeadSha) {
     }
 
     /** 前回レビュー成功済みでheadShaが変化している場合は増分diffを試み、失敗・非該当時はPR全体のdiffにフォールバックする。 */
@@ -258,8 +326,8 @@ public class ReviewOrchestrator implements AutoCloseable {
             ReviewStateStore.StateEntry prev = previousState.get();
             if ("reviewed".equals(prev.status()) && !prev.reviewedHeadSha().equals(pr.head().sha())) {
                 try {
-                    DiffResult incrementalDiff = jGitProvider.getIncrementalDiff(
-                            owner, repoName, prev.reviewedHeadSha(), pr.head().sha(), excludeGlobs, reviewConfig.maxDiffChars());
+                    String incrementalDiff = jGitProvider.getIncrementalDiff(
+                            owner, repoName, prev.reviewedHeadSha(), pr.head().sha(), excludeGlobs);
                     return new DiffOutcome(incrementalDiff, prev.reviewedHeadSha());
                 } catch (GitMirrorException e) {
                     LOGGER.log(Level.WARNING,
@@ -270,13 +338,13 @@ public class ReviewOrchestrator implements AutoCloseable {
         return new DiffOutcome(getDiffWithFallback(owner, repoName, pr, excludeGlobs), null);
     }
 
-    private DiffResult getDiffWithFallback(String owner, String repoName, PullRequest pr, List<String> excludeGlobs) {
+    private String getDiffWithFallback(String owner, String repoName, PullRequest pr, List<String> excludeGlobs) {
         try {
-            return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
+            return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs);
         } catch (GitMirrorException e) {
             LOGGER.log(Level.WARNING,
                     "JGitによるdiff取得に失敗したためAPIフォールバックを使用します: %s/%s".formatted(owner, repoName), e);
-            return apiFallbackProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
+            return apiFallbackProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs);
         }
     }
 
@@ -323,6 +391,10 @@ public class ReviewOrchestrator implements AutoCloseable {
             }
         }
         return result;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     /** グレースフル停止時にJGitのローカルミラー(Repositoryハンドル)を解放する。 */

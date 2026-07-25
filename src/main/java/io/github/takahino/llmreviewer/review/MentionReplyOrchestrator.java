@@ -7,6 +7,7 @@ import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.DiffResult;
+import io.github.takahino.llmreviewer.git.DiffTruncator;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
@@ -257,14 +258,20 @@ public class MentionReplyOrchestrator {
         }
     }
 
+    /**
+     * mentionへの返信は1回のQ&Aで完結するためバッチ分割は行わず、
+     * ReviewOrchestrator側でDiffProviderから切り捨て責務が抜けた分をここで自前に切り詰める。
+     */
     private DiffResult getDiffWithFallback(String owner, String repoName, PullRequest pr, List<String> excludeGlobs) {
+        String rawDiff;
         try {
-            return jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
+            rawDiff = jGitProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs);
         } catch (GitMirrorException e) {
             LOGGER.log(Level.WARNING,
                     "JGitによるdiff取得に失敗したためAPIフォールバックを使用します: %s/%s".formatted(owner, repoName), e);
-            return apiFallbackProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
+            rawDiff = apiFallbackProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs);
         }
+        return DiffTruncator.truncate(rawDiff, reviewConfig.maxDiffChars());
     }
 
     private RagSearchResult searchRagContextSafely(

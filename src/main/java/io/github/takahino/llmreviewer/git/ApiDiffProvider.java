@@ -27,7 +27,7 @@ public class ApiDiffProvider implements DiffProvider {
     }
 
     @Override
-    public DiffResult getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs, int maxChars) {
+    public String getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs) {
         List<PathMatcher> matchers = excludeGlobs.stream()
                 .map(glob -> FileSystems.getDefault().getPathMatcher("glob:" + glob))
                 .toList();
@@ -53,7 +53,7 @@ public class ApiDiffProvider implements DiffProvider {
                 .append("# merge-base差分ではないため、複数コミットにまたがる変更の累積が正確でない場合があります。\n\n");
         latestPatchByFile.values().forEach(combined::append);
 
-        return DiffTruncator.truncate(combined.toString(), maxChars);
+        return combined.toString();
     }
 
     private static String formatPatch(CommitFileChange file) {

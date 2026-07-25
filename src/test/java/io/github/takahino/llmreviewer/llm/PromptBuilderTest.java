@@ -47,7 +47,8 @@ class PromptBuilderTest {
     void initialUserMessageOmitsRagSectionsWhenResultEmpty() {
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
-                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of());
+                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of(),
+                PromptBuilder.BatchInfo.single());
 
         String text = ((UserMessage) message).singleText();
         assertFalse(text.contains("関連コード候補"));
@@ -62,12 +63,36 @@ class PromptBuilderTest {
 
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
-                ragResult, new DiffResult("diff --git a/x b/x", false), null, Map.of());
+                ragResult, new DiffResult("diff --git a/x b/x", false), null, Map.of(),
+                PromptBuilder.BatchInfo.single());
 
         String text = ((UserMessage) message).singleText();
         assertTrue(text.contains("関連コード候補"));
         assertTrue(text.contains("src/Foo.java"));
         assertTrue(text.contains("関連コーディング規約抜粋"));
         assertTrue(text.contains("docs/coding-standards.md"));
+    }
+
+    @Test
+    void initialUserMessageOmitsBatchHeaderWhenBatchCountIsOne() {
+        ChatMessage message = promptBuilder.initialUserMessage(
+                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
+                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of(),
+                new PromptBuilder.BatchInfo(1, 1, List.of("x")));
+
+        String text = ((UserMessage) message).singleText();
+        assertFalse(text.contains("## バッチ情報"));
+    }
+
+    @Test
+    void initialUserMessageIncludesBatchHeaderWhenBatchCountGreaterThanOne() {
+        ChatMessage message = promptBuilder.initialUserMessage(
+                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
+                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of(),
+                new PromptBuilder.BatchInfo(2, 3, List.of("src/A.java")));
+
+        String text = ((UserMessage) message).singleText();
+        assertTrue(text.contains("## バッチ情報"));
+        assertTrue(text.contains("src/A.java"));
     }
 }

@@ -81,6 +81,16 @@ public class PromptBuilder {
         return language;
     }
 
+    /**
+     * バッチ処理中であることをLLMに明示するための情報。{@code batchCount<=1}なら
+     * {@link #initialUserMessage}はバッチ情報セクションを一切出力しない(非バッチ時と完全互換)。
+     */
+    public record BatchInfo(int batchIndex, int batchCount, List<String> changedFilesInBatch) {
+        public static BatchInfo single() {
+            return new BatchInfo(1, 1, List.of());
+        }
+    }
+
     public ChatMessage initialUserMessage(
             PullRequest pr,
             RepoReviewConfig repoConfig,
@@ -91,12 +101,15 @@ public class PromptBuilder {
             RagSearchResult ragResult,
             DiffResult diff,
             String incrementalPreviousHeadSha,
-            Map<String, String> fullFileContext
+            Map<String, String> fullFileContext,
+            BatchInfo batchInfo
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append("## プルリクエスト情報\n");
         sb.append("- タイトル: ").append(pr.title()).append('\n');
         sb.append("- 本文:\n").append(isBlank(pr.body()) ? "(なし)" : pr.body()).append("\n\n");
+
+        appendBatchInfoSection(sb, batchInfo);
 
         sb.append("## レビュー観点\n");
         for (RepoReviewConfig.PerspectiveGroup group : perspectiveGroups) {
@@ -194,6 +207,20 @@ public class PromptBuilder {
         return new UserMessage(
                 "追加のファイル提供は上限に達しました。現時点で得られている情報のみで、" +
                         "status を \"complete\" として最終的なレビュー結果を同じJSONスキーマで出力してください。");
+    }
+
+    /** バッチ数が2以上の場合のみ、LLMが分割処理を誤解しないよう明示するセクションを追加する。 */
+    private static void appendBatchInfoSection(StringBuilder sb, BatchInfo batchInfo) {
+        if (batchInfo.batchCount() <= 1) {
+            return;
+        }
+        sb.append("## バッチ情報\n");
+        sb.append("- このPRは差分が大きいため全").append(batchInfo.batchCount())
+                .append("バッチに分割して処理しています。これは").append(batchInfo.batchIndex()).append("バッチ目です。\n");
+        sb.append("- 本バッチの対象ファイル: ").append(String.join(", ", batchInfo.changedFilesInBatch())).append('\n');
+        sb.append("- 他のバッチのファイルはこのメッセージに含まれません。本バッチの差分にのみ基づいて判断してください。\n");
+        sb.append("- summaryにはPR全体の総括文を書かず、本バッチの対象ファイルの変更点のみを記述してください"
+                + "(他バッチの出力と後で連結されるため、総括文を書くと重複します)。\n\n");
     }
 
     private static void appendRagSection(StringBuilder sb, String heading, List<RetrievedChunk> chunks) {

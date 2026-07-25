@@ -165,6 +165,27 @@ class CommentFormatterTest {
     }
 
     @Test
+    void formatSummaryOmitsSkippedFilesSectionWhenEmpty() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
+
+        String body = CommentFormatter.formatSummary(output, "abc1234567", "test-model", List.of(), null, List.of());
+
+        assertFalse(body.contains("サイズ上限のため今回のレビュー対象外となったファイル"));
+    }
+
+    @Test
+    void formatSummaryIncludesSkippedFilesSectionWhenNonEmpty() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
+
+        String body = CommentFormatter.formatSummary(
+                output, "abc1234567", "test-model", List.of(), null, List.of("big/generated.js", "vendor/bundle.js"));
+
+        assertTrue(body.contains("サイズ上限のため今回のレビュー対象外となったファイル"));
+        assertTrue(body.contains("- big/generated.js"));
+        assertTrue(body.contains("- vendor/bundle.js"));
+    }
+
+    @Test
     void formatMentionReplyIncludesMarkerAnswerAndTriggerUser() {
         MentionReplyOutput output = new MentionReplyOutput("complete", List.of(), "この関数はnullを返しません");
 

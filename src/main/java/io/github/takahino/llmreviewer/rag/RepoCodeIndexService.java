@@ -6,7 +6,6 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.filter.MetadataFilterBuilder;
 import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
@@ -84,8 +83,8 @@ public class RepoCodeIndexService {
             String owner, String repo, InMemoryEmbeddingStore<TextSegment> store,
             String previousHeadSha, String headSha
     ) {
-        DiffResult diff = jGitProvider.getIncrementalDiff(owner, repo, previousHeadSha, headSha, List.of(), Integer.MAX_VALUE);
-        List<String> changedFiles = UnifiedDiffIndex.parse(diff.diffText()).changedFiles();
+        String diff = jGitProvider.getIncrementalDiff(owner, repo, previousHeadSha, headSha, List.of());
+        List<String> changedFiles = UnifiedDiffIndex.parse(diff).changedFiles();
         List<Document> toReindex = new ArrayList<>();
         for (String path : changedFiles) {
             if (!isIncluded(path)) {

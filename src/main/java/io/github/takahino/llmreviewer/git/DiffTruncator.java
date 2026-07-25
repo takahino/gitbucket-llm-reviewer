@@ -40,8 +40,11 @@ public final class DiffTruncator {
         return new DiffResult(sb.toString(), true);
     }
 
-    /** "diff --git"行を境界として、それ以前の前置き部分(あれば)とファイル毎の塊に分割する。 */
-    private static List<String> splitByFile(String diff) {
+    /**
+     * "diff --git"行を境界として、それ以前の前置き部分(あれば)とファイル毎の塊に分割する。
+     * {@link DiffBatcher} がバッチ分割時のファイル境界検出に再利用するため package-private。
+     */
+    static List<String> splitByFile(String diff) {
         List<String> chunks = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         for (String line : diff.lines().toList()) {

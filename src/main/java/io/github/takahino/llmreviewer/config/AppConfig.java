@@ -31,7 +31,7 @@ public record AppConfig(
         repositories = List.copyOf(repositories);
         Objects.requireNonNull(llm, "llm 設定は必須です");
         polling = polling != null ? polling : new PollingConfig(null);
-        review = review != null ? review : new ReviewConfig(null, null, null, null, null, null);
+        review = review != null ? review : new ReviewConfig(null, null, null, null, null, null, null);
         rag = rag != null ? rag : new RagConfig(
                 null, null, null, null, null, null, null, null, null, null, null, null);
         state = state != null ? state : new StateConfig(null, null);
@@ -99,9 +99,15 @@ public record AppConfig(
         }
     }
 
+    /**
+     * @param maxDiffChars 1バッチ(1回のLLMリクエスト)あたりのdiff文字数上限。PR全体のdiffがこれを
+     *                     超える場合は{@code maxDiffBatches}まで複数バッチに分割される(切り捨てではない)。
+     * @param maxDiffBatches 1PRあたりの最大バッチ数(暴走防止の安全弁)。これを超えた分のファイルは
+     *                       レビュー対象外としてサマリコメントに明記される(黙って消えない)。
+     */
     public record ReviewConfig(
             Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses,
-            Boolean fullFileContextEnabled, Integer fullFileContextMaxFiles
+            Boolean fullFileContextEnabled, Integer fullFileContextMaxFiles, Integer maxDiffBatches
     ) {
         public ReviewConfig {
             maxDiffChars = maxDiffChars == null ? 200_000 : maxDiffChars;
@@ -111,6 +117,7 @@ public record AppConfig(
             // プロンプトサイズ・LLM呼び出しコストが増えるため既定はOFF。有効化はconfig.ymlで明示的に行う。
             fullFileContextEnabled = fullFileContextEnabled == null ? Boolean.FALSE : fullFileContextEnabled;
             fullFileContextMaxFiles = fullFileContextMaxFiles == null ? 20 : fullFileContextMaxFiles;
+            maxDiffBatches = maxDiffBatches == null ? 20 : maxDiffBatches;
         }
     }
 
