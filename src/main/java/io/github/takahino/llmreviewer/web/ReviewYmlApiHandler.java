@@ -4,10 +4,10 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
 import io.github.takahino.llmreviewer.review.RepoReviewConfigFetcher;
+import io.github.takahino.llmreviewer.scm.ScmApiException;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.RepositoryInfo;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
@@ -23,11 +23,11 @@ import java.util.Set;
  */
 final class ReviewYmlApiHandler implements HttpHandler {
 
-    private final GitBucketClient gitBucketClient;
+    private final ScmClient scmClient;
     private final RepoReviewConfigFetcher repoReviewConfigFetcher;
 
-    ReviewYmlApiHandler(GitBucketClient gitBucketClient, RepoReviewConfigFetcher repoReviewConfigFetcher) {
-        this.gitBucketClient = gitBucketClient;
+    ReviewYmlApiHandler(ScmClient scmClient, RepoReviewConfigFetcher repoReviewConfigFetcher) {
+        this.scmClient = scmClient;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
     }
 
@@ -62,9 +62,9 @@ final class ReviewYmlApiHandler implements HttpHandler {
     private void handleReviewYml(HttpExchange exchange, String owner, String repo) throws IOException {
         String defaultBranch;
         try {
-            RepositoryDetail detail = gitBucketClient.getRepository(owner, repo);
+            RepositoryInfo detail = scmClient.getRepository(owner, repo);
             defaultBranch = detail.defaultBranch();
-        } catch (GitBucketApiException e) {
+        } catch (ScmApiException e) {
             JsonHttp.sendError(exchange, 502, "GitBucketからリポジトリ情報を取得できませんでした: " + e.getMessage());
             return;
         }

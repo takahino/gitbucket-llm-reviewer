@@ -1,6 +1,6 @@
 package io.github.takahino.llmreviewer.review;
 
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
+import io.github.takahino.llmreviewer.scm.ScmClient;
 
 import java.util.List;
 import java.util.logging.Logger;
@@ -14,10 +14,10 @@ public class CommentPublisher {
 
     private static final Logger LOGGER = Logger.getLogger(CommentPublisher.class.getName());
 
-    private final GitBucketClient client;
+    private final ScmClient client;
     private final boolean dryRun;
 
-    public CommentPublisher(GitBucketClient client, boolean dryRun) {
+    public CommentPublisher(ScmClient client, boolean dryRun) {
         this.client = client;
         this.dryRun = dryRun;
     }

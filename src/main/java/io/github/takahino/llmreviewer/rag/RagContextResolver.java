@@ -2,7 +2,7 @@ package io.github.takahino.llmreviewer.rag;
 
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.List;
 
@@ -14,6 +14,6 @@ public interface RagContextResolver {
      *                      から既に計算済みのものを渡す。ここで再パースしない)
      */
     RagSearchResult search(
-            String owner, String repo, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            String owner, String repo, PullRequest pr, RepoReviewConfig repoConfig,
             DiffResult diff, List<String> changedFiles);
 }

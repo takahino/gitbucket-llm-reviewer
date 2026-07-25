@@ -2,9 +2,9 @@ package io.github.takahino.llmreviewer.web;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.llm.ModelListClient;
 import io.github.takahino.llmreviewer.review.RepoReviewConfigFetcher;
+import io.github.takahino.llmreviewer.scm.ScmClient;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -27,7 +27,7 @@ public final class WebUiServer {
             int port,
             Path configPath,
             AppConfig initialConfig,
-            GitBucketClient gitBucketClient,
+            ScmClient scmClient,
             RepoReviewConfigFetcher repoReviewConfigFetcher
     ) throws IOException {
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
@@ -39,7 +39,7 @@ public final class WebUiServer {
 
         server.createContext("/", new StaticAssetHandler());
         server.createContext("/api/config", new ConfigApiHandler(configPath, currentConfig, port));
-        server.createContext("/api/review-yml", new ReviewYmlApiHandler(gitBucketClient, repoReviewConfigFetcher));
+        server.createContext("/api/review-yml", new ReviewYmlApiHandler(scmClient, repoReviewConfigFetcher));
         // llm.baseUrlは常にOpenAI互換だが、rag.embeddingBaseUrlはprovider(ollama/openai-compatible)で取得方法が変わる
         server.createContext("/api/llm/models", new ModelListApiHandler(modelListClient, port,
                 (client, body) -> client.listOpenAiCompatible(body.baseUrl(), body.apiKey())));

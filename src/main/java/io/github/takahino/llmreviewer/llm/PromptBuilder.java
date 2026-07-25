@@ -6,9 +6,9 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
 import io.github.takahino.llmreviewer.rag.RetrievedChunk;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.List;
 import java.util.Map;
@@ -55,7 +55,7 @@ public class PromptBuilder {
     }
 
     public ChatMessage initialUserMessage(
-            PullRequestInfo pr,
+            PullRequest pr,
             RepoReviewConfig repoConfig,
             List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups,
             List<String> repositoryFilePaths,

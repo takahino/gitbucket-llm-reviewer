@@ -4,10 +4,10 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.gitbucket.model.BranchRef;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
 import io.github.takahino.llmreviewer.rag.RetrievedChunk;
+import io.github.takahino.llmreviewer.scm.model.GitRef;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -20,10 +20,10 @@ class PromptBuilderTest {
 
     private final PromptBuilder promptBuilder = new PromptBuilder(5);
 
-    private static PullRequestInfo samplePr() {
-        return new PullRequestInfo(
+    private static PullRequest samplePr() {
+        return new PullRequest(
                 1, "タイトル", "本文", "open", null,
-                new BranchRef("feature", "head-sha"), new BranchRef("main", "base-sha"), null, null);
+                new GitRef("feature", "head-sha"), new GitRef("main", "base-sha"), null, null);
     }
 
     @Test

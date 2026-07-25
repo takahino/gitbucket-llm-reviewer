@@ -10,6 +10,10 @@ import io.github.takahino.llmreviewer.gitbucket.model.GitUser;
 import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.Account;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
+import io.github.takahino.llmreviewer.scm.model.RepositoryInfo;
 import io.github.takahino.llmreviewer.util.CharsetDetector;
 
 import java.io.IOException;
@@ -27,7 +31,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** GitBucket の GitHub 互換 REST API (v3) を呼び出す薄いクライアント。 */
-public class GitBucketClient {
+public class GitBucketClient implements ScmClient {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
@@ -48,45 +52,52 @@ public class GitBucketClient {
                 .build();
     }
 
-    public List<PullRequestInfo> listOpenPullRequests(String owner, String repo) {
+    @Override
+    public List<PullRequest> listOpenPullRequests(String owner, String repo) {
         URI uri = apiUri("/repos/%s/%s/pulls".formatted(owner, repo), Map.of("state", "open"));
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parseList(body, PullRequestInfo.class);
+        return parseList(body, PullRequestInfo.class).stream().map(GitBucketModelMapper::toPullRequest).toList();
     }
 
-    public PullRequestInfo getPullRequest(String owner, String repo, int number) {
+    @Override
+    public PullRequest getPullRequest(String owner, String repo, int number) {
         URI uri = apiUri("/repos/%s/%s/pulls/%d".formatted(owner, repo, number), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parse(body, PullRequestInfo.class);
+        return GitBucketModelMapper.toPullRequest(parse(body, PullRequestInfo.class));
     }
 
-    public List<CommitRef> listPullRequestCommits(String owner, String repo, int number) {
+    @Override
+    public List<io.github.takahino.llmreviewer.scm.model.CommitRef> listPullRequestCommits(String owner, String repo, int number) {
         URI uri = apiUri("/repos/%s/%s/pulls/%d/commits".formatted(owner, repo, number), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parseList(body, CommitRef.class);
+        return parseList(body, CommitRef.class).stream().map(GitBucketModelMapper::toCommitRef).toList();
     }
 
-    public CommitDetail getCommitDetail(String owner, String repo, String sha) {
+    @Override
+    public io.github.takahino.llmreviewer.scm.model.CommitDetail getCommitDetail(String owner, String repo, String sha) {
         URI uri = apiUri("/repos/%s/%s/commits/%s".formatted(owner, repo, sha), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parse(body, CommitDetail.class);
+        return GitBucketModelMapper.toCommitDetail(parse(body, CommitDetail.class));
     }
 
     /** トークンに紐づく認証済みユーザー情報を取得する。メンション応答機能でBot自身のユーザー名を解決するために使用する。 */
-    public GitUser getAuthenticatedUser() {
+    @Override
+    public Account getAuthenticatedUser() {
         URI uri = apiUri("/user", Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parse(body, GitUser.class);
+        return GitBucketModelMapper.toAccount(parse(body, GitUser.class));
     }
 
     /** リポジトリ情報(デフォルトブランチ等)を取得する。PRに紐づかない文脈(管理UI等)でのブランチ解決に使う。 */
-    public RepositoryDetail getRepository(String owner, String repo) {
+    @Override
+    public RepositoryInfo getRepository(String owner, String repo) {
         URI uri = apiUri("/repos/%s/%s".formatted(owner, repo), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parse(body, RepositoryDetail.class);
+        return GitBucketModelMapper.toRepositoryInfo(parse(body, RepositoryDetail.class));
     }
 
     /** 指定 ref のファイルの生の中身を取得する。存在しない場合は空を返す。 */
+    @Override
     public Optional<String> getRawContent(String owner, String repo, String path, String ref) {
         URI uri = apiUri("/repos/%s/%s/contents/%s".formatted(owner, repo, encodePath(path)), Map.of("ref", ref));
         HttpRequest request = HttpRequest.newBuilder(uri)
@@ -104,6 +115,7 @@ public class GitBucketClient {
         return Optional.of(CharsetDetector.decode(response.body()));
     }
 
+    @Override
     public void postIssueComment(String owner, String repo, int issueNumber, String commentBody) {
         URI uri = apiUri("/repos/%s/%s/issues/%d/comments".formatted(owner, repo, issueNumber), Map.of());
         String requestJson = commentBodyJson(commentBody);
@@ -115,13 +127,15 @@ public class GitBucketClient {
     }
 
     /** PRの過去コメントを折りたたむため、Issueコメント一覧を取得する。 */
-    public List<IssueComment> listIssueComments(String owner, String repo, int issueNumber) {
+    @Override
+    public List<io.github.takahino.llmreviewer.scm.model.IssueComment> listIssueComments(String owner, String repo, int issueNumber) {
         URI uri = apiUri("/repos/%s/%s/issues/%d/comments".formatted(owner, repo, issueNumber), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
-        return parseList(body, IssueComment.class);
+        return parseList(body, IssueComment.class).stream().map(GitBucketModelMapper::toIssueComment).toList();
     }
 
     /** 既存のIssueコメント本文を更新する(過去のレビューコメントを折りたたむために使用)。 */
+    @Override
     public void updateIssueComment(String owner, String repo, long commentId, String newBody) {
         URI uri = apiUri("/repos/%s/%s/issues/comments/%d".formatted(owner, repo, commentId), Map.of());
         String requestJson = commentBodyJson(newBody);

@@ -10,7 +10,7 @@ import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.List;
 
@@ -44,7 +44,7 @@ public class EmbeddingRagContextResolver implements RagContextResolver {
 
     @Override
     public RagSearchResult search(
-            String owner, String repo, PullRequestInfo pr, RepoReviewConfig repoConfig,
+            String owner, String repo, PullRequest pr, RepoReviewConfig repoConfig,
             DiffResult diff, List<String> changedFiles) {
         String queryText = truncate(diff.diffText(), MAX_QUERY_CHARS);
         if (queryText.isBlank()) {

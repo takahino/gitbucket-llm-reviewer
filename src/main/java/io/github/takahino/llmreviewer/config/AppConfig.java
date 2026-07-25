@@ -1,6 +1,7 @@
 package io.github.takahino.llmreviewer.config;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -8,6 +9,7 @@ import java.util.Objects;
  * 必須項目の検証とデフォルト値の適用を行う(設定ファイルはシステム境界のため)。
  */
 public record AppConfig(
+        String provider,
         GitBucketConfig gitbucket,
         List<RepositoryRef> repositories,
         PollingConfig polling,
@@ -18,6 +20,10 @@ public record AppConfig(
         String workDir
 ) {
     public AppConfig {
+        if (provider == null || provider.isBlank()) {
+            throw new IllegalArgumentException("provider は必須です(現時点では gitbucket のみ指定可能です)");
+        }
+        provider = provider.trim().toLowerCase(Locale.ROOT);
         Objects.requireNonNull(gitbucket, "gitbucket 設定は必須です");
         if (repositories == null || repositories.isEmpty()) {
             throw new IllegalArgumentException("repositories には最低1件のリポジトリを指定してください");

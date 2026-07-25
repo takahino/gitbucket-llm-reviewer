@@ -1,7 +1,8 @@
-package io.github.takahino.llmreviewer.gitbucket;
+package io.github.takahino.llmreviewer.scm;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
+import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

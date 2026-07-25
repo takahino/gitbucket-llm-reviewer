@@ -1,10 +1,10 @@
 package io.github.takahino.llmreviewer.git;
 
-import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.CommitDetail;
-import io.github.takahino.llmreviewer.gitbucket.model.CommitFileEntry;
-import io.github.takahino.llmreviewer.gitbucket.model.CommitRef;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.scm.ScmClient;
+import io.github.takahino.llmreviewer.scm.model.CommitDetail;
+import io.github.takahino.llmreviewer.scm.model.CommitFileChange;
+import io.github.takahino.llmreviewer.scm.model.CommitRef;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -20,14 +20,14 @@ import java.util.Map;
  */
 public class ApiDiffProvider implements DiffProvider {
 
-    private final GitBucketClient client;
+    private final ScmClient client;
 
-    public ApiDiffProvider(GitBucketClient client) {
+    public ApiDiffProvider(ScmClient client) {
         this.client = client;
     }
 
     @Override
-    public DiffResult getUnifiedDiff(String owner, String repo, PullRequestInfo pr, List<String> excludeGlobs, int maxChars) {
+    public DiffResult getUnifiedDiff(String owner, String repo, PullRequest pr, List<String> excludeGlobs, int maxChars) {
         List<PathMatcher> matchers = excludeGlobs.stream()
                 .map(glob -> FileSystems.getDefault().getPathMatcher("glob:" + glob))
                 .toList();
@@ -37,7 +37,7 @@ public class ApiDiffProvider implements DiffProvider {
         List<CommitRef> commits = client.listPullRequestCommits(owner, repo, pr.number());
         for (CommitRef commitRef : commits) {
             CommitDetail detail = client.getCommitDetail(owner, repo, commitRef.sha());
-            for (CommitFileEntry file : detail.files()) {
+            for (CommitFileChange file : detail.files()) {
                 if (file.patch() == null) {
                     continue;
                 }
@@ -60,7 +60,7 @@ public class ApiDiffProvider implements DiffProvider {
         return new DiffResult(diff.substring(0, maxChars), true);
     }
 
-    private static String formatPatch(CommitFileEntry file) {
+    private static String formatPatch(CommitFileChange file) {
         return "diff --git a/%s b/%s\n%s\n".formatted(file.filename(), file.filename(), file.patch());
     }
 }

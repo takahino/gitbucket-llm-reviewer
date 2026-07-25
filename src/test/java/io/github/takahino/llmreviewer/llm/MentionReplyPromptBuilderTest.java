@@ -4,11 +4,11 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
-import io.github.takahino.llmreviewer.gitbucket.model.BranchRef;
-import io.github.takahino.llmreviewer.gitbucket.model.GitUser;
-import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
-import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
+import io.github.takahino.llmreviewer.scm.model.Account;
+import io.github.takahino.llmreviewer.scm.model.GitRef;
+import io.github.takahino.llmreviewer.scm.model.IssueComment;
+import io.github.takahino.llmreviewer.scm.model.PullRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -21,14 +21,14 @@ class MentionReplyPromptBuilderTest {
 
     private final MentionReplyPromptBuilder promptBuilder = new MentionReplyPromptBuilder(5);
 
-    private static PullRequestInfo samplePr() {
-        return new PullRequestInfo(
+    private static PullRequest samplePr() {
+        return new PullRequest(
                 1, "タイトル", "本文", "open", null,
-                new BranchRef("feature", "head-sha"), new BranchRef("main", "base-sha"), null, null);
+                new GitRef("feature", "head-sha"), new GitRef("main", "base-sha"), null, null);
     }
 
     private static IssueComment triggerComment(String login, String body) {
-        return new IssueComment(100, body, new GitUser(login));
+        return new IssueComment(100, body, new Account(login));
     }
 
     @Test
@@ -62,8 +62,8 @@ class MentionReplyPromptBuilderTest {
     @Test
     void includesCommentHistoryAndLabelsBotSelf() {
         List<IssueComment> history = List.of(
-                new IssueComment(1, "サマリコメント", new GitUser("review-bot")),
-                new IssueComment(2, "ここが気になる", new GitUser("alice")));
+                new IssueComment(1, "サマリコメント", new Account("review-bot")),
+                new IssueComment(2, "ここが気になる", new Account("alice")));
 
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), List.of(), List.of(), Map.of(), Map.of(), RagSearchResult.empty(),
