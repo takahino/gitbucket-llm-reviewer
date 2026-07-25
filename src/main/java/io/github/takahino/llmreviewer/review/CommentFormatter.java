@@ -42,12 +42,40 @@ public final class CommentFormatter {
         return "%s:mentionReply:%d -->".formatted(MARKER_PREFIX, triggerCommentId);
     }
 
+    /**
+     * フッターの「参照したコンテキストファイル」一覧の1行分。LLMに実際に見せたファイルの
+     * パスと、どの経路(常時/観点別/RAG/全文/動的取得)で渡されたかを保持する。
+     * 同一(path, kind)の重複除去はOrchestrator側の収集ロジックが担う(このrecordはレンダリングのみ)。
+     */
+    public record ReferencedFile(String path, Kind kind) {
+
+        /** LLMに渡した経路の種別。表示ラベルは日本語で固定する。 */
+        public enum Kind {
+            ALWAYS_CONTEXT("常時コンテキスト"),
+            PERSPECTIVE_CONTEXT("観点別コンテキスト"),
+            RAG_RELATED_CODE("関連コード候補(RAG)"),
+            RAG_KNOWLEDGE_BASE("関連コーディング規約(RAG)"),
+            FULL_FILE_CONTEXT("全文コンテキスト"),
+            DYNAMICALLY_FETCHED("追加取得");
+
+            private final String label;
+
+            Kind(String label) {
+                this.label = label;
+            }
+
+            public String label() {
+                return label;
+            }
+        }
+    }
+
     /** 変更サマリのみを含むコメント本文を組み立てる。 */
     public static String formatSummary(
             ReviewOutput output,
             String headSha,
             String modelName,
-            List<String> referencedAdditionalFiles,
+            List<ReferencedFile> referencedFiles,
             String incrementalPreviousHeadSha
     ) {
         StringBuilder sb = new StringBuilder();
@@ -57,7 +85,7 @@ public final class CommentFormatter {
         sb.append("## 変更サマリ\n");
         appendIncrementalScopeNote(sb, incrementalPreviousHeadSha);
         sb.append(isBlank(output.summary()) ? "(サマリなし)" : output.summary()).append("\n\n");
-        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        appendFooter(sb, headSha, modelName, referencedFiles);
         return sb.toString();
     }
 
@@ -66,7 +94,7 @@ public final class CommentFormatter {
             ReviewOutput output,
             String headSha,
             String modelName,
-            List<String> referencedAdditionalFiles,
+            List<ReferencedFile> referencedFiles,
             int maxComments,
             UnifiedDiffIndex diffIndex,
             String incrementalPreviousHeadSha,
@@ -105,7 +133,7 @@ public final class CommentFormatter {
             }
         }
         sb.append('\n');
-        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        appendFooter(sb, headSha, modelName, referencedFiles);
         return sb.toString();
     }
 
@@ -114,7 +142,7 @@ public final class CommentFormatter {
             MentionReplyOutput output,
             String headSha,
             String modelName,
-            List<String> referencedAdditionalFiles,
+            List<ReferencedFile> referencedFiles,
             long triggerCommentId,
             String triggerUserLogin
     ) {
@@ -126,7 +154,7 @@ public final class CommentFormatter {
         }
         sb.append('\n');
         sb.append(isBlank(output.answer()) ? "(回答なし)" : output.answer()).append("\n\n");
-        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        appendFooter(sb, headSha, modelName, referencedFiles);
         return sb.toString();
     }
 
@@ -137,14 +165,17 @@ public final class CommentFormatter {
         }
     }
 
-    /** サマリ・指摘事項の両コメント共通のフッター(モデル名/head/参照した追加ファイル)を付記する。 */
-    private static void appendFooter(StringBuilder sb, String headSha, String modelName, List<String> referencedAdditionalFiles) {
+    /** サマリ・指摘事項・メンション応答の全コメント共通のフッター(モデル名/head/参照したコンテキストファイル)を付記する。 */
+    private static void appendFooter(StringBuilder sb, String headSha, String modelName, List<ReferencedFile> referencedFiles) {
         sb.append("---\n");
         sb.append("モデル: `").append(modelName).append("` / head: `").append(shortSha(headSha)).append("`");
-        if (!referencedAdditionalFiles.isEmpty()) {
-            sb.append(" / 参照した追加ファイル: ").append(String.join(", ", referencedAdditionalFiles));
-        }
         sb.append('\n');
+        if (!referencedFiles.isEmpty()) {
+            sb.append("\n## 参照したコンテキストファイル\n");
+            for (ReferencedFile f : referencedFiles) {
+                sb.append("- ").append(f.path()).append(" (").append(f.kind().label()).append(")\n");
+            }
+        }
     }
 
     /**

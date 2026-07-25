@@ -205,10 +205,36 @@ public class MentionReplyOrchestrator {
             conversation.add(promptBuilder.additionalFilesMessage(resolved));
         }
 
+        List<CommentFormatter.ReferencedFile> referencedContextFiles = collectReferencedContextFiles(
+                contextFiles, perspectiveContextFiles, ragResult, referencedFiles);
         String triggerUserLogin = trigger.user() != null ? trigger.user().login() : null;
         String replyBody = CommentFormatter.formatMentionReply(
-                output, pr.head().sha(), llmModelName, List.copyOf(referencedFiles), trigger.id(), triggerUserLogin);
+                output, pr.head().sha(), llmModelName, referencedContextFiles, trigger.id(), triggerUserLogin);
         commentPublisher.publish(owner, repoName, pr.number(), List.of(replyBody));
+    }
+
+    /**
+     * LLMに実際に渡した全コンテキストソース(常時/観点別/RAG関連コード/RAG規約/動的取得)を
+     * フッター表示用に1つのリストへ合算する({@link ReviewOrchestrator}と異なりfullFileContextは扱わない)。
+     */
+    private static List<CommentFormatter.ReferencedFile> collectReferencedContextFiles(
+            Map<String, String> contextFiles,
+            Map<String, String> perspectiveContextFiles,
+            RagSearchResult ragResult,
+            Set<String> dynamicallyFetchedFiles
+    ) {
+        Set<CommentFormatter.ReferencedFile> result = new LinkedHashSet<>();
+        contextFiles.keySet().forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.ALWAYS_CONTEXT)));
+        perspectiveContextFiles.keySet().forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.PERSPECTIVE_CONTEXT)));
+        ragResult.relatedCode().forEach(c ->
+                result.add(new CommentFormatter.ReferencedFile(c.sourcePath(), CommentFormatter.ReferencedFile.Kind.RAG_RELATED_CODE)));
+        ragResult.knowledgeBase().forEach(c ->
+                result.add(new CommentFormatter.ReferencedFile(c.sourcePath(), CommentFormatter.ReferencedFile.Kind.RAG_KNOWLEDGE_BASE)));
+        dynamicallyFetchedFiles.forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)));
+        return List.copyOf(result);
     }
 
     /** LLMに問い合わせ、JSONパースに失敗した場合は1回だけ矯正リトライする(ReviewOrchestrator.chatAndParseと同じ方針)。 */
