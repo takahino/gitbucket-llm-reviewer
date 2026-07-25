@@ -64,7 +64,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.stateStore = stateStore;
         this.reviewConfig = reviewConfig;
         this.llmModelName = llmModelName;
-        this.commentPublisher = new CommentPublisher(gitBucketClient, reviewConfig.foldPreviousComments(), dryRun);
+        this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
         this.ragContextResolver = ragContextResolver;
     }
 
@@ -129,10 +129,16 @@ public class ReviewOrchestrator implements AutoCloseable {
             conversation.add(promptBuilder.additionalFilesMessage(resolved));
         }
 
-        String commentBody = CommentFormatter.format(
-                output, pr.head().sha(), llmModelName, List.copyOf(referencedFiles), repoConfig.maxComments(),
-                diffIndex, diffOutcome.incrementalPreviousHeadSha());
-        commentPublisher.publish(owner, repoName, pr.number(), commentBody);
+        List<String> referencedFileList = List.copyOf(referencedFiles);
+        List<String> commentBodies = List.of(
+                CommentFormatter.formatSummary(
+                        output, pr.head().sha(), llmModelName, referencedFileList,
+                        diffOutcome.incrementalPreviousHeadSha()),
+                CommentFormatter.formatFindings(
+                        output, pr.head().sha(), llmModelName, referencedFileList, repoConfig.maxComments(),
+                        diffIndex, diffOutcome.incrementalPreviousHeadSha())
+        );
+        commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
     }
 
     /** LLMに問い合わせ、JSONパースに失敗した場合は1回だけ矯正リトライする。成功時は会話履歴にassistant応答を積む。 */

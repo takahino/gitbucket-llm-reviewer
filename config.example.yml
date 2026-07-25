@@ -22,7 +22,6 @@ review:
   maxAdditionalFiles: 12
   maxFileChars: 80000
   maxPasses: 5
-  foldPreviousComments: true  # 過去のレビューコメントを折りたたんでから新規コメントを投稿する
 rag:
   enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
   embeddingProvider: ollama             # ollama | openai-compatible

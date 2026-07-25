@@ -7,7 +7,7 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 ## Features
 
 - **Polling** — periodically scans configured repositories for open pull requests and detects new PRs and pushes to existing PRs (no double-reviewing thanks to persisted state).
-- **Summary** — generates a Japanese/English summary of the change.
+- **Summary** — generates a detailed, per-file Japanese/English summary of the change (with code excerpts for notable changes), posted as its own comment separate from the findings.
 - **Per-repository review perspectives** — checks defined in a `.review.yml` file at the repository root.
 - **Monorepo support** — perspectives can be scoped per folder via glob patterns (e.g. different rules for `frontend/**` vs `backend/**`).
 - **Whole-repository consistency check (multi-pass)** — when a diff alone isn't enough to judge correctness (e.g. a call site changed without seeing the callee), the LLM can request additional files; the tool fetches them and re-prompts, up to a configurable number of passes.
@@ -15,7 +15,6 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - **Pseudo inline comments** — GitBucket has no API for commenting directly on a diff line, so findings quote the surrounding code from the diff instead, getting close to an inline-comment experience.
 - **Incremental review** — the head SHA from the last successful review is persisted; when new commits are pushed, only the diff since that review is sent to the LLM instead of the whole PR (falls back to a full-PR diff if the previous head can no longer be resolved).
 - **LLM call retries** — connection failures, timeouts, and 5xx responses from the LLM server are retried with exponential backoff (4xx responses are not retried).
-- **Folds previous review comments** — before posting, the bot wraps its own past review comments in a `<details>` block so pushes don't pile up unreadable comment history.
 - **Not UTF-8 only** — source files are decoded with automatic charset detection (Shift_JIS, EUC-JP, UTF-8, ...), since real-world codebases are not always UTF-8.
 - **Resilient diff retrieval** — uses JGit against GitBucket's git smart HTTP endpoint as the primary diff source (GitBucket's REST API has no `pulls/:id/files` or compare endpoint), falling back to concatenated per-commit patches from the REST API if JGit fails.
 - **Posts review comments** back to the pull request, plus structured logging.
@@ -65,7 +64,6 @@ review:
   maxAdditionalFiles: 12
   maxFileChars: 80000
   maxPasses: 5
-  foldPreviousComments: true  # fold the bot's previous review comments before posting a new one
 rag:
   enabled: false                        # set true to enable vector-search context augmentation
   embeddingProvider: ollama             # ollama | openai-compatible
@@ -146,7 +144,7 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 - The API-based diff fallback concatenates per-commit patches and is an approximation, not an exact merge-base diff.
 - GitBucket's REST API has no equivalent of GitHub's Pull Request Review Comments (commenting directly on a diff line), so findings quote the surrounding code inside the regular issue comment instead. It is not a true inline diff comment.
 - Incremental review only works while the previously reviewed head SHA's git object is still resolvable from the local mirror. After a force-push or mirror gc that removes it, the tool falls back to reviewing the full PR diff.
-- Folding previous comments (`review.foldPreviousComments`) assumes GitBucket exposes the issue comment list (GET) and update (PATCH) endpoints on GitHub v3-compatible paths (`/repos/:owner/:repo/issues/:number/comments`, `/repos/:owner/:repo/issues/comments/:id`). If the token lacks sufficient permission, folding is skipped and the new comment is still posted.
+- GitBucket strips HTML tags (including `<details>`) from Markdown for security reasons, so past review comments are not collapsed/folded — every push posts new summary/findings comments and the comment history simply accumulates.
 - RAG (`rag.enabled: true`) surfaces "reference information" via vector similarity search; it does not guarantee accurate file retrieval. When precise information is needed (e.g. confirming a callee's implementation), the LLM still falls back to requesting the full file via `need_more_context`.
 
 ## License

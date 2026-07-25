@@ -25,7 +25,7 @@ public record AppConfig(
         repositories = List.copyOf(repositories);
         Objects.requireNonNull(llm, "llm 設定は必須です");
         polling = polling != null ? polling : new PollingConfig(null);
-        review = review != null ? review : new ReviewConfig(null, null, null, null, null);
+        review = review != null ? review : new ReviewConfig(null, null, null, null);
         rag = rag != null ? rag : new RagConfig(
                 null, null, null, null, null, null, null, null, null, null, null, null);
         state = state != null ? state : new StateConfig(null);
@@ -92,15 +92,13 @@ public record AppConfig(
     }
 
     public record ReviewConfig(
-            Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses,
-            Boolean foldPreviousComments
+            Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses
     ) {
         public ReviewConfig {
             maxDiffChars = maxDiffChars == null ? 200_000 : maxDiffChars;
             maxAdditionalFiles = maxAdditionalFiles == null ? 12 : maxAdditionalFiles;
             maxFileChars = maxFileChars == null ? 80_000 : maxFileChars;
             maxPasses = maxPasses == null ? 5 : maxPasses;
-            foldPreviousComments = foldPreviousComments == null ? true : foldPreviousComments;
         }
     }
 

@@ -24,27 +24,65 @@ class CommentFormatterTest {
             """;
 
     @Test
-    void formatIncludesMarkerSummaryAndFindings() {
+    void formatSummaryIncludesMarkerAndSummaryText() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
+
+        String body = CommentFormatter.formatSummary(output, "abc1234567", "test-model", List.of(), null);
+
+        assertTrue(body.contains(CommentFormatter.summaryMarker("abc1234567")));
+        assertTrue(body.contains("## 変更サマリ"));
+        assertTrue(body.contains("サマリです"));
+        assertFalse(body.contains("## 指摘事項"), "サマリコメントに指摘事項セクションは含まれないこと");
+    }
+
+    @Test
+    void formatSummaryIncludesReferencedAdditionalFiles() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
+
+        String body = CommentFormatter.formatSummary(
+                output, "abc1234567", "test-model", List.of("src/Bar.java"), null);
+
+        assertTrue(body.contains("参照した追加ファイル"));
+        assertTrue(body.contains("src/Bar.java"));
+    }
+
+    @Test
+    void formatFindingsIncludesMarkerLocationAndSnippet() {
         ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです",
                 List.of(new Finding("src/Foo.java", 2, "warning", "命名規則", "命名を見直してください")));
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
-        String body = CommentFormatter.format(output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
+        String body = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
 
-        assertTrue(body.contains(CommentFormatter.marker("abc1234567")));
-        assertTrue(body.contains("サマリです"));
+        assertTrue(body.contains(CommentFormatter.findingsMarker("abc1234567")));
+        assertTrue(body.contains("## 指摘事項"));
+        assertFalse(body.contains("## 変更サマリ"), "指摘事項コメントにサマリセクションは含まれないこと");
         assertTrue(body.contains("src/Foo.java:2"));
         assertTrue(body.contains("命名を見直してください"));
         assertTrue(body.contains("+line2modified"), "該当行のスニペットが引用されること");
     }
 
     @Test
-    void formatFallsBackToFileLineWhenSnippetNotFound() {
+    void formatFindingsIncludesReferencedAdditionalFiles() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリ", List.of());
+        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
+
+        String body = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of("src/Bar.java"), 10, diffIndex, null);
+
+        assertTrue(body.contains("参照した追加ファイル"));
+        assertTrue(body.contains("src/Bar.java"));
+    }
+
+    @Test
+    void formatFindingsFallsBackToFileLineWhenSnippetNotFound() {
         ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリ",
                 List.of(new Finding("src/Foo.java", 999, "info", "観点", "コメント")));
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
-        String body = CommentFormatter.format(output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
+        String body = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
 
         assertTrue(body.contains("src/Foo.java:999"));
         assertFalse(body.contains("```diff"), "該当箇所が見つからない場合は引用ブロックを付けない");
@@ -55,16 +93,14 @@ class CommentFormatterTest {
         ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリ", List.of());
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
-        String body = CommentFormatter.format(output, "abc1234567", "test-model", List.of(), 10, diffIndex, "deadbeef00");
+        String summaryBody = CommentFormatter.formatSummary(
+                output, "abc1234567", "test-model", List.of(), "deadbeef00");
+        String findingsBody = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, "deadbeef00");
 
-        assertTrue(body.contains("前回レビュー"));
-        assertTrue(body.contains("deadbeef00".substring(0, 10)));
-    }
-
-    @Test
-    void isBotCommentDetectsMarkerOnly() {
-        assertTrue(CommentFormatter.isBotComment(CommentFormatter.marker("sha") + "\n本文"));
-        assertFalse(CommentFormatter.isBotComment("人間が書いた普通のコメント"));
-        assertFalse(CommentFormatter.isBotComment(null));
+        assertTrue(summaryBody.contains("前回レビュー"));
+        assertTrue(summaryBody.contains("deadbeef00".substring(0, 10)));
+        assertTrue(findingsBody.contains("前回レビュー"));
+        assertTrue(findingsBody.contains("deadbeef00".substring(0, 10)));
     }
 }

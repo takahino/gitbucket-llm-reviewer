@@ -1,64 +1,37 @@
 package io.github.takahino.llmreviewer.review;
 
-import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
-import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * PRへのレビューコメント投稿を担う。GitBucketにはコメントのpin留め等が無いため、
- * push毎に新規コメントが積み上がって読みにくくならないよう、投稿前にbot自身の過去コメントを
- * <details>タグで折りたたんでから新規コメントを投稿する。
+ * PRへのレビューコメント投稿を担う。GitBucketはMarkdown中のHTMLタグをすべて除去する仕様のため
+ * (&lt;details&gt;による折りたたみ表示ができない)、過去コメントには手を加えず新規コメント
+ * (サマリ・指摘事項など複数件)を順に投稿するだけのシンプルな実装にしている。
  */
 public class CommentPublisher {
 
     private static final Logger LOGGER = Logger.getLogger(CommentPublisher.class.getName());
 
     private final GitBucketClient client;
-    private final boolean foldPreviousComments;
     private final boolean dryRun;
 
-    public CommentPublisher(GitBucketClient client, boolean foldPreviousComments, boolean dryRun) {
+    public CommentPublisher(GitBucketClient client, boolean dryRun) {
         this.client = client;
-        this.foldPreviousComments = foldPreviousComments;
         this.dryRun = dryRun;
     }
 
-    public void publish(String owner, String repo, int issueNumber, String newCommentBody) {
+    public void publish(String owner, String repo, int issueNumber, List<String> newCommentBodies) {
         String prLabel = "%s/%s#%d".formatted(owner, repo, issueNumber);
         if (dryRun) {
-            LOGGER.info("[dry-run] %s へのコメント投稿をスキップします:%n%s".formatted(prLabel, newCommentBody));
+            for (String body : newCommentBodies) {
+                LOGGER.info("[dry-run] %s へのコメント投稿をスキップします:%n%s".formatted(prLabel, body));
+            }
             return;
         }
-        if (foldPreviousComments) {
-            foldPreviousBotComments(owner, repo, issueNumber);
-        }
-        client.postIssueComment(owner, repo, issueNumber, newCommentBody);
-    }
-
-    private void foldPreviousBotComments(String owner, String repo, int issueNumber) {
-        List<IssueComment> comments;
-        try {
-            comments = client.listIssueComments(owner, repo, issueNumber);
-        } catch (GitBucketApiException e) {
-            LOGGER.log(Level.WARNING,
-                    "過去コメント一覧の取得に失敗したため折りたたみをスキップします: %s/%s#%d".formatted(owner, repo, issueNumber), e);
-            return;
-        }
-        for (IssueComment comment : comments) {
-            if (!CommentFormatter.isBotComment(comment.body()) || comment.body().stripLeading().startsWith("<details>")) {
-                continue;
-            }
-            String folded = "<details>\n<summary>過去のレビュー結果</summary>\n\n" + comment.body() + "\n\n</details>\n";
-            try {
-                client.updateIssueComment(owner, repo, comment.id(), folded);
-            } catch (GitBucketApiException e) {
-                LOGGER.log(Level.WARNING,
-                        "過去コメントの折りたたみに失敗しました(id=%d): %s".formatted(comment.id(), e.getMessage()), e);
-            }
+        for (String body : newCommentBodies) {
+            client.postIssueComment(owner, repo, issueNumber, body);
         }
     }
 }

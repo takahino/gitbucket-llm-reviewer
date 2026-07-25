@@ -17,17 +17,41 @@ public final class CommentFormatter {
     private CommentFormatter() {
     }
 
-    /** 冪等性の保険として、同一headShaに対する重複投稿判定に使えるマーカー。 */
-    public static String marker(String headSha) {
-        return "%s: %s -->".formatted(MARKER_PREFIX, headSha);
+    /** 変更サマリコメント用のマーカー(サマリ・指摘事項を別コメントとして区別するために種別を含む)。 */
+    public static String summaryMarker(String headSha) {
+        return marker("summary", headSha);
     }
 
-    /** botが過去に投稿したコメントかどうかを判定する(折りたたみ対象の抽出に使用)。 */
-    public static boolean isBotComment(String body) {
-        return body != null && body.contains(MARKER_PREFIX);
+    /** 指摘事項コメント用のマーカー。 */
+    public static String findingsMarker(String headSha) {
+        return marker("findings", headSha);
     }
 
-    public static String format(
+    private static String marker(String kind, String headSha) {
+        return "%s:%s: %s -->".formatted(MARKER_PREFIX, kind, headSha);
+    }
+
+    /** 変更サマリのみを含むコメント本文を組み立てる。 */
+    public static String formatSummary(
+            ReviewOutput output,
+            String headSha,
+            String modelName,
+            List<String> referencedAdditionalFiles,
+            String incrementalPreviousHeadSha
+    ) {
+        StringBuilder sb = new StringBuilder();
+        // マーカー行(HTMLコメント)の直後に空行を挟まないと、Markdownパーサーが後続の見出しやコード
+        // ブロックまでHTMLブロックの一部とみなし、生テキストのまま表示してしまうことがあるため。
+        sb.append(summaryMarker(headSha)).append("\n\n");
+        sb.append("## 変更サマリ\n");
+        appendIncrementalScopeNote(sb, incrementalPreviousHeadSha);
+        sb.append(isBlank(output.summary()) ? "(サマリなし)" : output.summary()).append("\n\n");
+        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        return sb.toString();
+    }
+
+    /** 指摘事項のみを含むコメント本文を組み立てる。 */
+    public static String formatFindings(
             ReviewOutput output,
             String headSha,
             String modelName,
@@ -37,16 +61,10 @@ public final class CommentFormatter {
             String incrementalPreviousHeadSha
     ) {
         StringBuilder sb = new StringBuilder();
-        sb.append(marker(headSha)).append('\n');
-        if (incrementalPreviousHeadSha != null) {
-            sb.append("> 本レビューは前回レビュー(head: `").append(shortSha(incrementalPreviousHeadSha))
-                    .append("`)以降の差分のみが対象です。\n\n");
-        }
-        sb.append("## 変更サマリ\n")
-                .append(isBlank(output.summary()) ? "(サマリなし)" : output.summary())
-                .append("\n\n");
-
+        sb.append(findingsMarker(headSha)).append("\n\n");
         sb.append("## 指摘事項\n");
+        appendIncrementalScopeNote(sb, incrementalPreviousHeadSha);
+
         List<Finding> findings = output.findings();
         if (findings.isEmpty()) {
             sb.append("特に指摘事項はありませんでした。\n");
@@ -66,14 +84,26 @@ public final class CommentFormatter {
                 sb.append("\n(他 ").append(findings.size() - maxComments).append(" 件の指摘は表示上限のため省略されました)\n");
             }
         }
+        sb.append('\n');
+        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        return sb.toString();
+    }
 
-        sb.append("\n---\n");
+    private static void appendIncrementalScopeNote(StringBuilder sb, String incrementalPreviousHeadSha) {
+        if (incrementalPreviousHeadSha != null) {
+            sb.append("> 本レビューは前回レビュー(head: `").append(shortSha(incrementalPreviousHeadSha))
+                    .append("`)以降の差分のみが対象です。\n\n");
+        }
+    }
+
+    /** サマリ・指摘事項の両コメント共通のフッター(モデル名/head/参照した追加ファイル)を付記する。 */
+    private static void appendFooter(StringBuilder sb, String headSha, String modelName, List<String> referencedAdditionalFiles) {
+        sb.append("---\n");
         sb.append("モデル: `").append(modelName).append("` / head: `").append(shortSha(headSha)).append("`");
         if (!referencedAdditionalFiles.isEmpty()) {
             sb.append(" / 参照した追加ファイル: ").append(String.join(", ", referencedAdditionalFiles));
         }
         sb.append('\n');
-        return sb.toString();
     }
 
     /**
