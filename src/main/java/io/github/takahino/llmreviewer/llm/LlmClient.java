@@ -1,134 +1,46 @@
 package io.github.takahino.llmreviewer.llm;
 
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ResponseFormatType;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.llm.model.ChatCompletionRequest;
-import io.github.takahino.llmreviewer.llm.model.ChatCompletionResponse;
-import io.github.takahino.llmreviewer.llm.model.ChatMessage;
-import io.github.takahino.llmreviewer.llm.model.ResponseFormat;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
-/** OpenAI 互換 /chat/completions を呼び出すクライアント(Ollama/LM Studio/vLLM 等を想定)。 */
+/**
+ * OpenAI 互換 /chat/completions を呼び出すクライアント(Ollama/LM Studio/vLLM 等を想定)。
+ * langchain4j の {@link OpenAiChatModel} に委譲する。5xx/408/429 は
+ * {@code RetriableException} としてリトライ対象、4xx(400/401/403/404 等)は
+ * {@code NonRetriableException} として即座に失敗する(langchain4j内蔵の
+ * {@code RetryUtils}/{@code ExceptionMapper} による挙動で、従来の自前リトライ制御と同等)。
+ */
 public class LlmClient {
 
-    private static final Logger LOGGER = Logger.getLogger(LlmClient.class.getName());
-
-    private final JsonMapper jsonMapper = JsonMapper.builder()
-            .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
-            .build();
-
-    private final HttpClient httpClient;
-    private final AppConfig.LlmConfig config;
+    private final ChatModel chatModel;
 
     public LlmClient(AppConfig.LlmConfig config) {
-        this.config = config;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
+        this.chatModel = OpenAiChatModel.builder()
+                .baseUrl(config.baseUrl())
+                .apiKey(config.apiKey().isBlank() ? "unused" : config.apiKey())
+                .modelName(config.model())
+                .temperature(config.temperature())
+                .maxTokens(config.maxTokens())
+                .timeout(Duration.ofSeconds(config.timeoutSeconds()))
+                // config.retryMaxAttempts()は初回試行を含む最大試行回数。langchain4jのmaxRetriesは
+                // 初回とは別の追加リトライ回数を指すため、-1して意味を合わせる(最小0)。
+                .maxRetries(Math.max(0, config.retryMaxAttempts() - 1))
+                .responseFormat(ResponseFormat.builder().type(ResponseFormatType.JSON).build())
                 .build();
     }
 
-    /** 通信断・タイムアウト・5xxなど一時的なエラーを表す。chat()内でのみ捕捉しリトライ判定に使う。 */
-    private static final class RetryableLlmException extends RuntimeException {
-        RetryableLlmException(String message, Throwable cause) {
-            super(message, cause);
-        }
-
-        RetryableLlmException(String message) {
-            super(message);
-        }
-    }
-
     public String chat(List<ChatMessage> messages) {
-        ChatCompletionRequest requestBody = new ChatCompletionRequest(
-                config.model(), messages, config.temperature(), config.maxTokens(), new ResponseFormat("json_object"));
-        String requestJson;
-        try {
-            requestJson = jsonMapper.writeValueAsString(requestBody);
-        } catch (IOException e) {
-            throw new LlmClientException("LLMリクエストのJSON化に失敗しました", e);
-        }
-
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(config.baseUrl() + "/chat/completions"))
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()))
-                .header("Content-Type", "application/json; charset=utf-8")
-                .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8));
-        if (!config.apiKey().isBlank()) {
-            builder.header("Authorization", "Bearer " + config.apiKey());
-        }
-        HttpRequest request = builder.build();
-
-        int maxAttempts = config.retryMaxAttempts();
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                return sendAndParse(request);
-            } catch (RetryableLlmException e) {
-                if (attempt >= maxAttempts) {
-                    throw new LlmClientException(e.getMessage(), e.getCause());
-                }
-                long delayMs = config.retryBackoffMs() * (1L << (attempt - 1));
-                LOGGER.log(Level.WARNING, "LLM呼び出しに失敗しました。%dms後にリトライします(試行 %d/%d): %s"
-                        .formatted(delayMs, attempt, maxAttempts, e.getMessage()));
-                sleep(delayMs);
-            }
-        }
-        // maxAttempts >= 1 である限りループ内でreturnまたはthrowされるため到達しない
-        throw new LlmClientException("LLM呼び出しに失敗しました(リトライ上限到達)");
-    }
-
-    private String sendAndParse(HttpRequest request) {
-        HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            throw new RetryableLlmException("LLMサーバーへの通信に失敗しました: " + config.baseUrl(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new LlmClientException("LLMサーバーへの通信が割り込まれました", e);
-        }
-
-        int status = response.statusCode();
-        if (status >= 500) {
-            throw new RetryableLlmException("LLMサーバーが一時的なエラーを返しました(status=%d): %s"
-                    .formatted(status, snippet(response.body())));
-        }
-        if (status < 200 || status >= 300) {
-            throw new LlmClientException("LLMサーバーがエラーを返しました(status=%d): %s"
-                    .formatted(status, snippet(response.body())));
-        }
-
-        try {
-            ChatCompletionResponse parsed = jsonMapper.readValue(response.body(), ChatCompletionResponse.class);
-            if (parsed.choices().isEmpty()) {
-                throw new LlmClientException("LLM応答にchoicesが含まれていません: " + response.body());
-            }
-            return parsed.choices().get(0).message().content();
-        } catch (IOException e) {
-            throw new LlmClientException("LLM応答のパースに失敗しました: " + response.body(), e);
-        }
-    }
-
-    private static void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new LlmClientException("リトライ待機中に割り込まれました", e);
-        }
-    }
-
-    private static String snippet(String body) {
-        String text = body == null ? "" : body;
-        return text.substring(0, Math.min(500, text.length()));
+        ChatRequest request = ChatRequest.builder().messages(messages).build();
+        ChatResponse response = chatModel.chat(request);
+        return response.aiMessage().text();
     }
 }

@@ -11,6 +11,7 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - **Per-repository review perspectives** — checks defined in a `.review.yml` file at the repository root.
 - **Monorepo support** — perspectives can be scoped per folder via glob patterns (e.g. different rules for `frontend/**` vs `backend/**`).
 - **Whole-repository consistency check (multi-pass)** — when a diff alone isn't enough to judge correctness (e.g. a call site changed without seeing the callee), the LLM can request additional files; the tool fetches them and re-prompts, up to a configurable number of passes.
+- **RAG context augmentation (optional)** — with `rag.enabled: true`, langchain4j is used to vector-search the whole repository and coding-standard documents (`.review.yml`'s `knowledgeBase`) and surface relevant code/standard excerpts as "reference information" up front. This complements rather than replaces the multi-pass request-based fetch above, and the review still proceeds if the embedding server is unreachable.
 - **Pseudo inline comments** — GitBucket has no API for commenting directly on a diff line, so findings quote the surrounding code from the diff instead, getting close to an inline-comment experience.
 - **Incremental review** — the head SHA from the last successful review is persisted; when new commits are pushed, only the diff since that review is sent to the LLM instead of the whole PR (falls back to a full-PR diff if the previous head can no longer be resolved).
 - **LLM call retries** — connection failures, timeouts, and 5xx responses from the LLM server are retried with exponential backoff (4xx responses are not retried).
@@ -25,6 +26,7 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - Maven 3.9+
 - A running GitBucket instance (tested against 4.46.1) with an API token
 - An OpenAI-compatible LLM endpoint (e.g. `ollama serve`, LM Studio, vLLM)
+- (Optional) An embedding model if RAG is enabled (e.g. `ollama pull nomic-embed-text`)
 
 ## Build
 
@@ -64,6 +66,19 @@ review:
   maxFileChars: 50000
   maxPasses: 3
   foldPreviousComments: true  # fold the bot's previous review comments before posting a new one
+rag:
+  enabled: false                        # set true to enable vector-search context augmentation
+  embeddingProvider: ollama             # ollama | openai-compatible
+  embeddingBaseUrl: http://localhost:11434
+  embeddingModel: nomic-embed-text      # pull it first, e.g. `ollama pull nomic-embed-text`
+  embeddingApiKey: ""                   # only for openai-compatible
+  topK: 5
+  minScore: 0.65
+  chunkSize: 500
+  chunkOverlap: 50
+  maxIndexFiles: 3000
+  includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
+  indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos
@@ -78,20 +93,26 @@ language: ja
 perspectives:                 # perspectives applied to the whole repository
   - "Security concerns (injection, missing authorization checks)"
   - "Consistency with existing naming/design"
-paths:                        # monorepo support: extra perspectives per folder (glob)
+paths:                        # monorepo support: extra perspectives/coding standards per folder (glob)
   "frontend/**":
     perspectives:
       - "Missing React hooks dependencies"
       - "XSS (dangerouslySetInnerHTML, etc.)"
-    inherit: true              # also apply the common perspectives above (default: true)
+    inherit: true              # also apply the common perspectives/knowledgeBase above (default: true)
+    knowledgeBase:
+      - "frontend/docs/coding-standards.md"
   "backend/**":
     perspectives:
       - "Transaction boundary correctness"
       - "N+1 queries"
+    knowledgeBase:
+      - "backend/docs/coding-standards.md"
 exclude:                       # glob patterns excluded from the diff
   - "**/*.min.js"
 contextFiles:                  # files always included as context (optional)
   - "README.md"
+knowledgeBase:                 # coding-standard documents to vector-search (optional, used only when rag.enabled=true)
+  - "docs/coding-standards.md"
 maxComments: 10
 ```
 
@@ -115,8 +136,9 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 
 1. `PollingService` lists open PRs for each configured repository and asks `ReviewOrchestrator` to review any PR whose head commit hasn't been reviewed yet.
 2. `ReviewOrchestrator` loads `.review.yml` (via GitBucket contents API, falling back to JGit), computes the diff (JGit merge-base diff primary, per-commit-patch concatenation as fallback), resolves the perspectives to apply (common + monorepo path groups), and gathers optional context files.
-3. The LLM is prompted with the diff, perspectives, and repository file list. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
-4. The final summary and findings are formatted into Markdown and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
+3. If `rag.enabled: true`, the diff is used as a query to vector-search the repository code (indexed fully on first run, incrementally afterward) and coding-standard documents (`.review.yml`'s `knowledgeBase`), surfacing related chunks as "reference information" (falls back to empty and continues the review if the embedding server is unreachable).
+4. The LLM is prompted with the diff, perspectives, repository file list, and RAG reference information. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
+5. The final summary and findings are formatted into Markdown and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
 
 ## Known limitations
 
@@ -125,6 +147,7 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 - GitBucket's REST API has no equivalent of GitHub's Pull Request Review Comments (commenting directly on a diff line), so findings quote the surrounding code inside the regular issue comment instead. It is not a true inline diff comment.
 - Incremental review only works while the previously reviewed head SHA's git object is still resolvable from the local mirror. After a force-push or mirror gc that removes it, the tool falls back to reviewing the full PR diff.
 - Folding previous comments (`review.foldPreviousComments`) assumes GitBucket exposes the issue comment list (GET) and update (PATCH) endpoints on GitHub v3-compatible paths (`/repos/:owner/:repo/issues/:number/comments`, `/repos/:owner/:repo/issues/comments/:id`). If the token lacks sufficient permission, folding is skipped and the new comment is still posted.
+- RAG (`rag.enabled: true`) surfaces "reference information" via vector similarity search; it does not guarantee accurate file retrieval. When precise information is needed (e.g. confirming a callee's implementation), the LLM still falls back to requesting the full file via `need_more_context`.
 
 ## License
 

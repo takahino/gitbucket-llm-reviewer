@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +20,7 @@ public record RepoReviewConfig(
         Map<String, PathConfig> paths,
         List<String> exclude,
         List<String> contextFiles,
+        List<String> knowledgeBase,
         Integer maxComments
 ) {
     public RepoReviewConfig {
@@ -27,14 +29,16 @@ public record RepoReviewConfig(
         paths = paths == null ? Map.of() : Map.copyOf(paths);
         exclude = exclude == null ? List.of() : List.copyOf(exclude);
         contextFiles = contextFiles == null ? List.of() : List.copyOf(contextFiles);
+        knowledgeBase = knowledgeBase == null ? List.of() : List.copyOf(knowledgeBase);
         maxComments = maxComments == null ? 10 : maxComments;
     }
 
-    /** モノレポの1フォルダ(glob)に対する追加観点設定。 */
-    public record PathConfig(List<String> perspectives, Boolean inherit) {
+    /** モノレポの1フォルダ(glob)に対する追加観点・追加コーディング規約設定。 */
+    public record PathConfig(List<String> perspectives, Boolean inherit, List<String> knowledgeBase) {
         public PathConfig {
             perspectives = perspectives == null ? List.of() : List.copyOf(perspectives);
             inherit = inherit == null ? Boolean.TRUE : inherit;
+            knowledgeBase = knowledgeBase == null ? List.of() : List.copyOf(knowledgeBase);
         }
     }
 
@@ -71,6 +75,35 @@ public record RepoReviewConfig(
         return groups;
     }
 
+    /**
+     * 変更ファイル一覧に対して適用されるコーディング規約(knowledgeBase)のパスを解決する。
+     * resolveGroupsFor と同じ「pathにマッチしたファイルはinherit=falseなら共通を継承しない」ルールを踏襲する。
+     */
+    public List<String> resolveKnowledgeBaseFor(List<String> changedFilePaths) {
+        Set<String> excludedFromCommon = new HashSet<>();
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+
+        for (Map.Entry<String, PathConfig> entry : paths.entrySet()) {
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + entry.getKey());
+            List<String> matchedFiles = changedFilePaths.stream()
+                    .filter(f -> matcher.matches(Path.of(f)))
+                    .toList();
+            if (matchedFiles.isEmpty()) {
+                continue;
+            }
+            if (!entry.getValue().inherit()) {
+                excludedFromCommon.addAll(matchedFiles);
+            }
+            result.addAll(entry.getValue().knowledgeBase());
+        }
+
+        boolean hasCommonScopeFiles = changedFilePaths.stream().anyMatch(f -> !excludedFromCommon.contains(f));
+        if (hasCommonScopeFiles) {
+            result.addAll(knowledgeBase);
+        }
+        return List.copyOf(result);
+    }
+
     public static RepoReviewConfig defaultConfig() {
         return new RepoReviewConfig(
                 "ja",
@@ -80,6 +113,7 @@ public record RepoReviewConfig(
                         "バグ・エッジケースの見落とし"
                 ),
                 Map.of(),
+                List.of(),
                 List.of(),
                 List.of(),
                 10

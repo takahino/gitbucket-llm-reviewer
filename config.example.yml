@@ -23,6 +23,19 @@ review:
   maxFileChars: 50000
   maxPasses: 3
   foldPreviousComments: true  # 過去のレビューコメントを折りたたんでから新規コメントを投稿する
+rag:
+  enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
+  embeddingProvider: ollama             # ollama | openai-compatible
+  embeddingBaseUrl: http://localhost:11434
+  embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
+  embeddingApiKey: ""                   # openai-compatible時のみ
+  topK: 5
+  minScore: 0.65
+  chunkSize: 500
+  chunkOverlap: 50
+  maxIndexFiles: 3000
+  includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
+  indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos

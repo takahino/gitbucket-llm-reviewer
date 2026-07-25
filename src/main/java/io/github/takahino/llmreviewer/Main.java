@@ -1,11 +1,19 @@
 package io.github.takahino.llmreviewer;
 
+import dev.langchain4j.model.embedding.EmbeddingModel;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.AppConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.llm.LlmClient;
+import io.github.takahino.llmreviewer.rag.EmbeddingModelFactory;
+import io.github.takahino.llmreviewer.rag.EmbeddingRagContextResolver;
+import io.github.takahino.llmreviewer.rag.KnowledgeBaseIndexService;
+import io.github.takahino.llmreviewer.rag.NoOpRagContextResolver;
+import io.github.takahino.llmreviewer.rag.RagContextResolver;
+import io.github.takahino.llmreviewer.rag.RagIndexStateStore;
+import io.github.takahino.llmreviewer.rag.RepoCodeIndexService;
 import io.github.takahino.llmreviewer.review.PollingService;
 import io.github.takahino.llmreviewer.review.ReviewOrchestrator;
 import io.github.takahino.llmreviewer.review.ReviewStateStore;
@@ -41,10 +49,11 @@ public final class Main {
         ApiDiffProvider apiFallbackProvider = new ApiDiffProvider(gitBucketClient);
         LlmClient llmClient = new LlmClient(config.llm());
         ReviewStateStore stateStore = new ReviewStateStore(Path.of(config.state().filePath()));
+        RagContextResolver ragContextResolver = createRagContextResolver(config.rag(), jGitProvider);
 
         ReviewOrchestrator orchestrator = new ReviewOrchestrator(
                 gitBucketClient, jGitProvider, apiFallbackProvider, llmClient, stateStore,
-                config.review(), config.llm().model(), arguments.dryRun());
+                config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver);
 
         PollingService pollingService = new PollingService(
                 gitBucketClient, orchestrator, config.repositories(), config.polling().intervalSeconds());
@@ -57,6 +66,19 @@ public final class Main {
             LOGGER.info("ポーリングを開始します(間隔: %d秒)".formatted(config.polling().intervalSeconds()));
             pollingService.startPolling();
         }
+    }
+
+    private static RagContextResolver createRagContextResolver(AppConfig.RagConfig ragConfig, JGitDiffProvider jGitProvider) {
+        if (!ragConfig.enabled()) {
+            return new NoOpRagContextResolver();
+        }
+        EmbeddingModel embeddingModel = EmbeddingModelFactory.create(ragConfig);
+        RagIndexStateStore ragIndexStateStore = new RagIndexStateStore(Path.of(ragConfig.indexDir()).resolve("index-state.json"));
+        RepoCodeIndexService codeIndexService =
+                new RepoCodeIndexService(jGitProvider, embeddingModel, ragIndexStateStore, ragConfig);
+        KnowledgeBaseIndexService knowledgeBaseIndexService =
+                new KnowledgeBaseIndexService(jGitProvider, embeddingModel, ragIndexStateStore, ragConfig);
+        return new EmbeddingRagContextResolver(codeIndexService, knowledgeBaseIndexService, embeddingModel, ragConfig);
     }
 
     private static void logStartupSummary(AppConfig config, Arguments arguments) {

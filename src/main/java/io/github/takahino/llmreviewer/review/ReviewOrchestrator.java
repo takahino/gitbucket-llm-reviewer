@@ -1,5 +1,7 @@
 package io.github.takahino.llmreviewer.review;
 
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
@@ -14,8 +16,9 @@ import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.llm.LlmResponseParser;
 import io.github.takahino.llmreviewer.llm.PromptBuilder;
-import io.github.takahino.llmreviewer.llm.model.ChatMessage;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
+import io.github.takahino.llmreviewer.rag.RagContextResolver;
+import io.github.takahino.llmreviewer.rag.RagSearchResult;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -41,6 +44,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final AppConfig.ReviewConfig reviewConfig;
     private final String llmModelName;
     private final CommentPublisher commentPublisher;
+    private final RagContextResolver ragContextResolver;
 
     public ReviewOrchestrator(
             GitBucketClient gitBucketClient,
@@ -50,7 +54,8 @@ public class ReviewOrchestrator implements AutoCloseable {
             ReviewStateStore stateStore,
             AppConfig.ReviewConfig reviewConfig,
             String llmModelName,
-            boolean dryRun
+            boolean dryRun,
+            RagContextResolver ragContextResolver
     ) {
         this.gitBucketClient = gitBucketClient;
         this.jGitProvider = jGitProvider;
@@ -60,6 +65,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.reviewConfig = reviewConfig;
         this.llmModelName = llmModelName;
         this.commentPublisher = new CommentPublisher(gitBucketClient, reviewConfig.foldPreviousComments(), dryRun);
+        this.ragContextResolver = ragContextResolver;
     }
 
     public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
@@ -90,6 +96,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
         Map<String, String> contextFiles = loadContextFiles(owner, repoName, pr.head().sha(), repoConfig.contextFiles());
+        RagSearchResult ragResult = searchRagContextSafely(owner, repoName, pr, repoConfig, diff);
 
         PromptBuilder promptBuilder = new PromptBuilder(reviewConfig.maxAdditionalFiles());
         ContextFileResolver contextFileResolver =
@@ -98,7 +105,8 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<ChatMessage> conversation = new ArrayList<>();
         conversation.add(promptBuilder.systemMessage());
         conversation.add(promptBuilder.initialUserMessage(
-                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, diff, diffOutcome.incrementalPreviousHeadSha()));
+                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, ragResult, diff,
+                diffOutcome.incrementalPreviousHeadSha()));
 
         Set<String> referencedFiles = new LinkedHashSet<>();
         ReviewOutput output;
@@ -136,7 +144,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         } catch (RuntimeException parseError) {
             LOGGER.log(Level.WARNING, "LLM応答のJSONパースに失敗しました。矯正リトライを行います", parseError);
             conversation.add(promptBuilder.assistantMessage(raw));
-            conversation.add(new ChatMessage("user",
+            conversation.add(new UserMessage(
                     "直前の出力はJSONとして解析できませんでした。説明文やコードフェンスを含めず、"
                             + "指定されたJSONスキーマのオブジェクト1つのみを出力し直してください。"));
             String retryRaw = llmClient.chat(conversation);
@@ -200,6 +208,17 @@ public class ReviewOrchestrator implements AutoCloseable {
             LOGGER.log(Level.WARNING,
                     "JGitによるdiff取得に失敗したためAPIフォールバックを使用します: %s/%s".formatted(owner, repoName), e);
             return apiFallbackProvider.getUnifiedDiff(owner, repoName, pr, excludeGlobs, reviewConfig.maxDiffChars());
+        }
+    }
+
+    /** RAG検索の失敗(embeddingサーバー不通等)がレビュー全体を止めないよう、失敗時は空結果にフォールバックする。 */
+    private RagSearchResult searchRagContextSafely(
+            String owner, String repoName, PullRequestInfo pr, RepoReviewConfig repoConfig, DiffResult diff) {
+        try {
+            return ragContextResolver.search(owner, repoName, pr, repoConfig, diff);
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, "RAG検索に失敗したため、参考情報なしで継続します: %s/%s".formatted(owner, repoName), e);
+            return RagSearchResult.empty();
         }
     }
 

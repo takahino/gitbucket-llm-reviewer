@@ -1,9 +1,14 @@
 package io.github.takahino.llmreviewer.llm;
 
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
-import io.github.takahino.llmreviewer.llm.model.ChatMessage;
+import io.github.takahino.llmreviewer.rag.RagSearchResult;
+import io.github.takahino.llmreviewer.rag.RetrievedChunk;
 
 import java.util.List;
 import java.util.Map;
@@ -37,7 +42,7 @@ public class PromptBuilder {
                 status を "need_more_context" とし、requestedFiles で確認したいファイルを最大%d件まで要求してください。
                 要求したファイルの内容は次のメッセージで提供されるので、それを踏まえて再度同じスキーマで出力してください。
                 """.formatted(maxAdditionalFiles);
-        return new ChatMessage("system", content);
+        return new SystemMessage(content);
     }
 
     public ChatMessage initialUserMessage(
@@ -46,6 +51,7 @@ public class PromptBuilder {
             List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups,
             List<String> repositoryFilePaths,
             Map<String, String> contextFiles,
+            RagSearchResult ragResult,
             DiffResult diff,
             String incrementalPreviousHeadSha
     ) {
@@ -74,6 +80,12 @@ public class PromptBuilder {
                     sb.append("### ").append(path).append("\n```\n").append(content).append("\n```\n\n"));
         }
 
+        appendRagSection(sb, "関連コード候補(ベクトル検索による自動抽出。参考情報であり正確性は保証されません。"
+                        + "不足があれば requestedFiles で該当ファイルの取得を要求してください)",
+                ragResult.relatedCode());
+        appendRagSection(sb, "関連コーディング規約抜粋(ベクトル検索による自動抽出。参考情報です)",
+                ragResult.knowledgeBase());
+
         sb.append("## 差分(unified diff)\n");
         if (incrementalPreviousHeadSha != null) {
             sb.append("(注意: これは前回レビュー(head: ").append(shortSha(incrementalPreviousHeadSha))
@@ -84,11 +96,11 @@ public class PromptBuilder {
         }
         sb.append("```diff\n").append(diff.diffText()).append("\n```\n");
 
-        return new ChatMessage("user", sb.toString());
+        return new UserMessage(sb.toString());
     }
 
     public ChatMessage assistantMessage(String rawJsonContent) {
-        return new ChatMessage("assistant", rawJsonContent);
+        return new AiMessage(rawJsonContent);
     }
 
     public ChatMessage additionalFilesMessage(Map<String, Optional<String>> resolvedFiles) {
@@ -102,13 +114,25 @@ public class PromptBuilder {
             }
         });
         sb.append("上記を踏まえて、同じJSONスキーマで出力してください。\n");
-        return new ChatMessage("user", sb.toString());
+        return new UserMessage(sb.toString());
     }
 
     public ChatMessage forceCompleteMessage() {
-        return new ChatMessage("user",
+        return new UserMessage(
                 "追加のファイル提供は上限に達しました。現時点で得られている情報のみで、" +
                         "status を \"complete\" として最終的なレビュー結果を同じJSONスキーマで出力してください。");
+    }
+
+    private static void appendRagSection(StringBuilder sb, String heading, List<RetrievedChunk> chunks) {
+        if (chunks.isEmpty()) {
+            return;
+        }
+        sb.append("## ").append(heading).append('\n');
+        for (RetrievedChunk chunk : chunks) {
+            sb.append("### ").append(chunk.sourcePath())
+                    .append(" (score=").append("%.2f".formatted(chunk.score())).append(")\n")
+                    .append("```\n").append(chunk.content()).append("\n```\n\n");
+        }
     }
 
     private static boolean isBlank(String s) {
