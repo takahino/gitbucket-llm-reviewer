@@ -3,18 +3,24 @@ language: ja
 perspectives:                 # リポジトリ共通の観点
   - "セキュリティ(インジェクション、認可漏れ)"
   - "既存コードとの命名・設計の一貫性"
-paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点
+paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点・追加コーディング規約
   "frontend/**":
     perspectives:
       - "React hooksの依存配列漏れ"
       - "XSS(dangerouslySetInnerHTML等)"
-    inherit: true             # 共通観点も適用する(デフォルトtrue)
+    inherit: true             # 共通観点・共通knowledgeBaseも適用する(デフォルトtrue)
+    knowledgeBase:
+      - "frontend/docs/coding-standards.md"
   "backend/**":
     perspectives:
       - "トランザクション境界の妥当性"
       - "N+1クエリ"
+    knowledgeBase:
+      - "backend/docs/coding-standards.md"
 exclude:                      # diffから除外するglob
   - "**/*.min.js"
 contextFiles:                 # 常にLLMに提供するファイル(任意)
   - "README.md"
+knowledgeBase:                # RAG検索対象のコーディング規約文書(任意。rag.enabled=true時のみ使用)
+  - "docs/coding-standards.md"
 maxComments: 10

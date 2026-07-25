@@ -13,6 +13,7 @@ public record AppConfig(
         PollingConfig polling,
         LlmConfig llm,
         ReviewConfig review,
+        RagConfig rag,
         StateConfig state,
         String workDir
 ) {
@@ -25,6 +26,8 @@ public record AppConfig(
         Objects.requireNonNull(llm, "llm 設定は必須です");
         polling = polling != null ? polling : new PollingConfig(null);
         review = review != null ? review : new ReviewConfig(null, null, null, null, null);
+        rag = rag != null ? rag : new RagConfig(
+                null, null, null, null, null, null, null, null, null, null, null, null);
         state = state != null ? state : new StateConfig(null);
         workDir = (workDir == null || workDir.isBlank()) ? "./data/repos" : workDir;
     }
@@ -81,8 +84,8 @@ public record AppConfig(
             baseUrl = baseUrl.replaceAll("/+$", "");
             apiKey = apiKey == null ? "" : apiKey;
             temperature = temperature == null ? 0.2 : temperature;
-            maxTokens = maxTokens == null ? 4096 : maxTokens;
-            timeoutSeconds = timeoutSeconds == null ? 300 : timeoutSeconds;
+            maxTokens = maxTokens == null ? 16384 : maxTokens;
+            timeoutSeconds = timeoutSeconds == null ? 600 : timeoutSeconds;
             retryMaxAttempts = retryMaxAttempts == null ? 3 : retryMaxAttempts;
             retryBackoffMs = retryBackoffMs == null ? 2000 : retryBackoffMs;
         }
@@ -93,10 +96,10 @@ public record AppConfig(
             Boolean foldPreviousComments
     ) {
         public ReviewConfig {
-            maxDiffChars = maxDiffChars == null ? 60_000 : maxDiffChars;
-            maxAdditionalFiles = maxAdditionalFiles == null ? 5 : maxAdditionalFiles;
-            maxFileChars = maxFileChars == null ? 50_000 : maxFileChars;
-            maxPasses = maxPasses == null ? 3 : maxPasses;
+            maxDiffChars = maxDiffChars == null ? 200_000 : maxDiffChars;
+            maxAdditionalFiles = maxAdditionalFiles == null ? 12 : maxAdditionalFiles;
+            maxFileChars = maxFileChars == null ? 80_000 : maxFileChars;
+            maxPasses = maxPasses == null ? 5 : maxPasses;
             foldPreviousComments = foldPreviousComments == null ? true : foldPreviousComments;
         }
     }
@@ -104,6 +107,44 @@ public record AppConfig(
     public record StateConfig(String filePath) {
         public StateConfig {
             filePath = (filePath == null || filePath.isBlank()) ? "./data/review-state.json" : filePath;
+        }
+    }
+
+    /** RAG(埋め込みベクトル検索によるコンテキスト拡張)設定。enabled=falseなら既存の申告制取得のみで動作する。 */
+    public record RagConfig(
+            Boolean enabled,
+            String embeddingProvider,
+            String embeddingBaseUrl,
+            String embeddingModel,
+            String embeddingApiKey,
+            Integer topK,
+            Double minScore,
+            Integer chunkSize,
+            Integer chunkOverlap,
+            Integer maxIndexFiles,
+            List<String> includeExtensions,
+            String indexDir
+    ) {
+        public RagConfig {
+            enabled = enabled == null ? Boolean.FALSE : enabled;
+            embeddingProvider = (embeddingProvider == null || embeddingProvider.isBlank()) ? "ollama" : embeddingProvider;
+            embeddingBaseUrl = (embeddingBaseUrl == null || embeddingBaseUrl.isBlank())
+                    ? "http://localhost:11434" : embeddingBaseUrl.replaceAll("/+$", "");
+            embeddingModel = (embeddingModel == null || embeddingModel.isBlank()) ? "nomic-embed-text" : embeddingModel;
+            embeddingApiKey = embeddingApiKey == null ? "" : embeddingApiKey;
+            topK = topK == null ? 10 : topK;
+            minScore = minScore == null ? 0.65 : minScore;
+            chunkSize = chunkSize == null ? 1000 : chunkSize;
+            chunkOverlap = chunkOverlap == null ? 100 : chunkOverlap;
+            maxIndexFiles = maxIndexFiles == null ? 10_000 : maxIndexFiles;
+            includeExtensions = includeExtensions == null
+                    ? List.of(".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md")
+                    : List.copyOf(includeExtensions);
+            indexDir = (indexDir == null || indexDir.isBlank()) ? "./data/rag-index" : indexDir;
+            if (!"ollama".equals(embeddingProvider) && !"openai-compatible".equals(embeddingProvider)) {
+                throw new IllegalArgumentException(
+                        "rag.embeddingProvider は ollama または openai-compatible を指定してください: " + embeddingProvider);
+            }
         }
     }
 }

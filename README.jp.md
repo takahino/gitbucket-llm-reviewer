@@ -11,6 +11,7 @@
 - **リポジトリ毎のレビュー観点** — リポジトリルートの `.review.yml` で定義した観点でチェックします。
 - **モノレポ対応** — `.review.yml` の `paths` でフォルダ(glob)毎に観点を追加できます(例: `frontend/**` と `backend/**` で異なる観点)。
 - **全体整合チェック(Nパス)** — diffだけでは判断がつかない場合(呼び出し元だけ変更され呼び出し先の実装が見えていない等)、LLMが追加ファイルを要求できます。ツールがそのファイルを取得して再問い合わせすることを、設定した回数まで繰り返します。
+- **RAGによるコンテキスト拡張(任意)** — `rag.enabled: true` にすると、langchain4j 経由でリポジトリコード全体とコーディング規約文書(`.review.yml` の `knowledgeBase`)をベクトル検索し、diffに関連しそうなコード・規約抜粋を「参考情報」として事前提示します。Nパスの申告制取得を置き換えるものではなく補完するもので、embeddingサーバーが不通でもレビュー自体は継続します。
 - **疑似インラインコメント** — GitBucketにはPRのdiff行へ直接コメントするAPIが無いため、指摘箇所周辺のコードをコメント内に引用することで、インラインコメントに近い体験を提供します。
 - **増分レビュー** — 前回レビュー成功時のheadShaを記録しており、pushで新しいコミットが追加された場合はPR全体ではなく差分(前回レビュー以降のコミット)のみを対象にレビューします(取得できない場合はPR全体のレビューにフォールバックします)。
 - **LLM呼び出しのリトライ** — LLMサーバーへの接続断・タイムアウト・5xxエラーは指数バックオフで自動リトライします(4xxエラーはリトライしません)。
@@ -25,6 +26,7 @@
 - Maven 3.9以上
 - GitBucketの稼働環境(4.46.1で動作確認済み)とAPIトークン
 - OpenAI互換のLLMエンドポイント(`ollama serve`、LM Studio、vLLM等)
+- (任意)RAGを有効にする場合はembeddingモデル(例: `ollama pull nomic-embed-text`)
 
 ## ビルド
 
@@ -54,16 +56,29 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # 一部のOpenAI互換サーバーでのみ必要
   temperature: 0.2
-  maxTokens: 4096
-  timeoutSeconds: 300
+  maxTokens: 16384
+  timeoutSeconds: 600
   retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
   retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
 review:
-  maxDiffChars: 60000
-  maxAdditionalFiles: 5
-  maxFileChars: 50000
-  maxPasses: 3
+  maxDiffChars: 200000
+  maxAdditionalFiles: 12
+  maxFileChars: 80000
+  maxPasses: 5
   foldPreviousComments: true  # 過去のレビューコメントを折りたたんでから新規コメントを投稿する
+rag:
+  enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
+  embeddingProvider: ollama             # ollama | openai-compatible
+  embeddingBaseUrl: http://localhost:11434
+  embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
+  embeddingApiKey: ""                   # openai-compatible時のみ
+  topK: 10
+  minScore: 0.65
+  chunkSize: 1000
+  chunkOverlap: 100
+  maxIndexFiles: 10000
+  includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
+  indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
 workDir: ./data/repos
@@ -78,20 +93,26 @@ language: ja
 perspectives:                 # リポジトリ全体に適用する観点
   - "セキュリティ上の懸念(インジェクション、認可漏れ)"
   - "既存コードとの命名・設計の一貫性"
-paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点
+paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点・追加コーディング規約
   "frontend/**":
     perspectives:
       - "React hooksの依存配列漏れ"
       - "XSS(dangerouslySetInnerHTML等)"
-    inherit: true             # 上記の共通観点も適用する(デフォルトtrue)
+    inherit: true             # 上記の共通観点・共通knowledgeBaseも適用する(デフォルトtrue)
+    knowledgeBase:
+      - "frontend/docs/coding-standards.md"
   "backend/**":
     perspectives:
       - "トランザクション境界の妥当性"
       - "N+1クエリ"
+    knowledgeBase:
+      - "backend/docs/coding-standards.md"
 exclude:                      # diffから除外するglob
   - "**/*.min.js"
 contextFiles:                 # 常にコンテキストとして渡すファイル(任意)
   - "README.md"
+knowledgeBase:                # RAG検索対象のコーディング規約文書(任意。rag.enabled=true時のみ使用)
+  - "docs/coding-standards.md"
 maxComments: 10
 ```
 
@@ -115,8 +136,9 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 
 1. `PollingService` が監視対象リポジトリ毎に open なPRを取得し、まだレビューしていないhead commitを持つPRを `ReviewOrchestrator` に渡します。
 2. `ReviewOrchestrator` が `.review.yml` を読み込み(GitBucketのcontents API、失敗時はJGit経由)、diffを計算し(JGitによるmerge-base差分をプライマリ、失敗時はコミット単位パッチの連結にフォールバック)、適用すべき観点(共通+モノレポのパスグループ)を解決し、任意のコンテキストファイルを収集します。
-3. LLMにdiff・観点・リポジトリのファイル一覧を渡します。`need_more_context` が返された場合は要求されたファイルを取得(重複除去・サイズ上限あり)し、`review.maxPasses` 回まで再問い合わせします。
-4. 最終的なサマリと指摘事項をMarkdownに整形し、PRコメントとして投稿します。レビュー済みのhead SHAを永続化するため、同じコミットが二重にレビューされることはありません。
+3. `rag.enabled: true` の場合、diffをクエリとしてリポジトリコード(初回は全量、以降は増分)とコーディング規約文書(`.review.yml` の `knowledgeBase`)をベクトル検索し、関連チャンクを「参考情報」として収集します(embeddingサーバー不通時は空扱いでフォールバックし、レビュー自体は継続します)。
+4. LLMにdiff・観点・リポジトリのファイル一覧・RAG参考情報を渡します。`need_more_context` が返された場合は要求されたファイルを取得(重複除去・サイズ上限あり)し、`review.maxPasses` 回まで再問い合わせします。
+5. 最終的なサマリと指摘事項をMarkdownに整形し、PRコメントとして投稿します。レビュー済みのhead SHAを永続化するため、同じコミットが二重にレビューされることはありません。
 
 ## 既知の制約
 
@@ -125,6 +147,7 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 - GitBucketのREST APIにはPRのdiff行への直接コメント(GitHubのPull Request Review Comments相当)が無いため、指摘箇所の周辺コードをIssueコメント内に引用する「疑似インライン化」で代替しています。真のdiff行コメントではありません。
 - 増分レビューは、前回レビュー済みheadShaのGitオブジェクトがローカルミラーから取得できる場合のみ有効です。force-pushやミラーのgc等で取得できない場合はPR全体のレビューにフォールバックします。
 - レビューコメントの折りたたみ(`review.foldPreviousComments`)は、GitBucketのIssueコメント一覧取得(GET)・編集(PATCH)APIがGitHub v3互換のパス(`/repos/:owner/:repo/issues/:number/comments`、`/repos/:owner/:repo/issues/comments/:id`)で提供されている前提です。トークンに十分な権限が無い場合は折りたたみをスキップし、新規コメント投稿は継続します。
+- RAG(`rag.enabled: true`)はベクトル類似検索による「参考情報」の提示であり、正確なファイル取得を保証するものではありません。呼び出し先の実装確認など正確性が必要な場合は、従来どおりLLMが `need_more_context` でファイル全文を要求します。
 
 ## ライセンス
 

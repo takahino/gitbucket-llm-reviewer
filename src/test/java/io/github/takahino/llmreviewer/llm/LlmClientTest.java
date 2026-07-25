@@ -1,8 +1,9 @@
 package io.github.takahino.llmreviewer.llm;
 
 import com.sun.net.httpserver.HttpServer;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.LangChain4jException;
 import io.github.takahino.llmreviewer.config.AppConfig;
-import io.github.takahino.llmreviewer.llm.model.ChatMessage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +53,7 @@ class LlmClientTest {
         server.start();
 
         LlmClient client = new LlmClient(configFor("http://127.0.0.1:" + server.getAddress().getPort(), 3, 10));
-        String result = client.chat(List.of(new ChatMessage("user", "hi")));
+        String result = client.chat(List.of(new UserMessage("hi")));
 
         assertEquals("ok", result);
         assertEquals(3, requestCount.get());
@@ -75,7 +76,7 @@ class LlmClientTest {
 
         LlmClient client = new LlmClient(configFor("http://127.0.0.1:" + server.getAddress().getPort(), 3, 10));
 
-        assertThrows(LlmClientException.class, () -> client.chat(List.of(new ChatMessage("user", "hi"))));
+        assertThrows(LangChain4jException.class, () -> client.chat(List.of(new UserMessage("hi"))));
         assertEquals(1, requestCount.get());
     }
 
@@ -96,7 +97,7 @@ class LlmClientTest {
 
         LlmClient client = new LlmClient(configFor("http://127.0.0.1:" + server.getAddress().getPort(), 3, 10));
 
-        assertThrows(LlmClientException.class, () -> client.chat(List.of(new ChatMessage("user", "hi"))));
+        assertThrows(LangChain4jException.class, () -> client.chat(List.of(new UserMessage("hi"))));
         assertEquals(3, requestCount.get());
     }
 }
