@@ -432,7 +432,7 @@
       <li><span class="num">04</span><a href="#config-ref" data-toc>config.yml リファレンス</a></li>
       <li><span class="num">05</span><a href="#review-yml-ref" data-toc>.review.yml リファレンス</a></li>
       <li><span class="num">06</span><a href="#cli" data-toc>CLIオプション</a></li>
-      <li><span class="num">07</span><a href="#flow" data-toc>レビューの流れ(Nパス)</a></li>
+      <li><span class="num">07</span><a href="#flow" data-toc>レビューの流れ(バッチ分割・Nパス)</a></li>
       <li><span class="num">08</span><a href="#mention" data-toc>メンションでの追質問/追レビュー</a></li>
       <li><span class="num">09</span><a href="#rag" data-toc>RAGによるコンテキスト拡張</a></li>
       <li><span class="num">10</span><a href="#state" data-toc>状態管理と冪等性</a></li>
@@ -444,19 +444,20 @@
 
   <main id="top">
     <header class="masthead">
-      <span class="eyebrow">USAGE MANUAL / v1</span>
+      <span class="eyebrow">USAGE MANUAL / v1.6.0</span>
       <h1>gitbucket-llm-reviewer 詳細ガイド</h1>
       <p class="lede">
         GitBucket のプルリクエストをポーリングで監視し、OpenAI互換API経由のローカルLLMで
         自動コードレビューを行うJava 21製アプリケーションの運用マニュアルです。
-        セットアップから設定ファイルの全項目、Nパスによる全体整合チェックの内部動作まで、
+        大量修正PRではdiffを切り捨てずファイル境界で複数バッチに分割してレビューします。
+        セットアップから設定ファイルの全項目、バッチ分割・Nパスによる全体整合チェックの内部動作まで、
         実際に運用する上で必要な情報をまとめています。
       </p>
       <div class="quicklinks">
         <a href="#setup">→ すぐに動かす</a>
         <a href="#config-ref">config.yml 全項目</a>
         <a href="#review-yml-ref">.review.yml 全項目</a>
-        <a href="#flow">Nパスの仕組み</a>
+        <a href="#flow">バッチ分割・Nパスの仕組み</a>
         <a href="#mention">メンション応答</a>
         <a href="#rag">RAG設定</a>
         <a href="#troubleshooting">うまく動かない時</a>
@@ -510,7 +511,7 @@
           <!-- ReviewOrchestrator -->
           <rect x="220" y="296" width="320" height="54" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.6"></rect>
           <text x="380" y="320" text-anchor="middle" font-size="14" fill="var(--ink)">ReviewOrchestrator</text>
-          <text x="380" y="338" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">観点解決・プロンプト構築</text>
+          <text x="380" y="338" text-anchor="middle" font-size="11" class="lbl-mono" fill="var(--ink-faint)">バッチ分割・観点解決・プロンプト構築</text>
 
           <!-- LLM -->
           <rect x="580" y="296" width="150" height="54" rx="2" fill="none" stroke="var(--ink)" stroke-width="1.4"></rect>
@@ -687,10 +688,13 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>llm.timeoutSeconds</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>600</code></td><td>LLM呼び出しのHTTPタイムアウト(秒)</td></tr>
             <tr><td><code>llm.retryMaxAttempts</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>3</code></td><td>LLM呼び出し失敗時の最大試行回数(初回含む)。5xx/408/429は自動リトライ、4xxはリトライしない</td></tr>
             <tr><td><code>llm.retryBackoffMs</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>2000</code></td><td>リトライ毎の待機時間(ミリ秒)。試行毎に倍加する指数バックオフ</td></tr>
-            <tr><td><code>review.maxDiffChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>200000</code></td><td>プロンプトに含めるdiffの最大文字数。超過分は切り詰め、その旨をLLMに明記</td></tr>
-            <tr><td><code>review.maxAdditionalFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>12</code></td><td>Nパスを通じてLLMが要求できる追加ファイルの総数上限(1回のパスではなくレビューセッション全体での累積上限)</td></tr>
+            <tr><td><code>review.maxDiffChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>200000</code></td><td>1バッチ(1回のLLMリクエスト)あたりのdiff文字数上限。PR全体のdiffがこれを超える場合は切り詰めず、ファイル境界を尊重して複数バッチに分割する</td></tr>
+            <tr><td><code>review.maxDiffBatches</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>20</code></td><td>1PRあたりの最大バッチ数(暴走防止の安全弁)。超過分のファイルはレビュー対象外となり、サマリコメントにファイル名が明記される(黙って消えない)</td></tr>
+            <tr><td><code>review.maxAdditionalFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>12</code></td><td>Nパスを通じてLLMが要求できる追加ファイルの総数上限(1回のパスではなくレビューセッション全体での累積上限。複数バッチに分かれる場合は全バッチ合計)</td></tr>
             <tr><td><code>review.maxFileChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>80000</code></td><td>追加ファイル1件あたりの最大文字数</td></tr>
-            <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>LLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
+            <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>各バッチについてLLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
+            <tr><td><code>review.fullFileContextEnabled</code></td><td>boolean</td><td><span class="opt">任意</span></td><td><code>false</code></td><td><code>true</code> にすると、変更ファイルのnew側全文・推測テストファイル・同一ディレクトリの関連ファイルを第1パスのプロンプトに含める(プロンプトサイズ・コストが増えるため既定はOFF)</td></tr>
+            <tr><td><code>review.fullFileContextMaxFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>20</code></td><td><code>fullFileContextEnabled: true</code> 時に収集するファイル数の上限</td></tr>
             <tr><td><code>state.filePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/review-state.json</code></td><td>レビュー済み状態の永続化先</td></tr>
             <tr><td><code>state.mentionStateFilePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/mention-state.json</code></td><td>PR毎の「メンション応答済み最終コメントID」の永続化先(詳細は「08」)</td></tr>
             <tr><td><code>workDir</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/repos</code></td><td>JGitのローカルbareミラーの保存先</td></tr>
@@ -703,7 +707,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
           上記の「デフォルト」列はキー省略時にコード側が用いる値で、RTX5090(VRAM 32GB)・RAM 128GB環境でQwen3.6-35B-A3B
           (5bit量子化、ネイティブコンテキスト262,144トークン)を使う前提でチューニングされています。この値をそのまま使いたい場合は
           <code>config.example_high.yml</code> をベースにしてください。一方、標準の <code>config.example.yml</code> は
-          <code>maxTokens</code> / <code>maxDiffChars</code> / <code>maxAdditionalFiles</code> / <code>maxFileChars</code> / <code>maxPasses</code>
+          <code>maxTokens</code> / <code>maxDiffChars</code> / <code>maxDiffBatches</code> / <code>maxAdditionalFiles</code> / <code>maxFileChars</code> / <code>maxPasses</code>
           などをより非力な環境・小型モデル向けの小さめの値に明示的に設定しています(値を大きくしすぎるとモデルのコンテキスト長を
           超過したり、1回のレビューが極端に長時間化したりします)。
         </p>
@@ -895,12 +899,32 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 
     <!-- ============================================================ -->
     <section id="flow">
-      <h2><span class="eyebrow">07</span>レビューの流れ(Nパス)</h2>
+      <h2><span class="eyebrow">07</span>レビューの流れ(バッチ分割・Nパス)</h2>
       <p class="lede">
-        diffだけでは判断がつかない変更(呼び出し元だけが変わり、呼び出し先の実装が見えていない等)に対応するため、
-        LLMは追加ファイルを要求できます。ツールはそれを取得して再度同じスキーマで問い合わせます。この往復を
-        <code>review.maxPasses</code> 回まで繰り返します。<code>rag.enabled: true</code> の場合、この往復に入る前の
-        初回プロンプトにベクトル検索による参考情報が事前提示されます(詳細は「08 RAGによるコンテキスト拡張」)。
+        PR全体のdiffが <code>review.maxDiffChars</code> を超える場合、まず <code>DiffBatcher</code> が
+        ファイル境界(<code>diff --git a/... b/...</code> 行)を尊重して複数バッチに分割します(切り捨てではなく、
+        各ファイルをレビュー対象に残す設計です)。以降の観点解決・RAG検索・Nパスはバッチ毎に独立して実行され、
+        全バッチのfindingsとsummaryを結合してからPRコメントを投稿します。
+        diffだけでは判断がつかない変更に対しては、各バッチ内でLLMが追加ファイルを要求でき、ツールはそれを取得して
+        再度同じスキーマで問い合わせます。この往復を <code>review.maxPasses</code> 回まで繰り返します。
+        <code>rag.enabled: true</code> の場合、各バッチのdiffをクエリとしてベクトル検索による参考情報を事前提示します(詳細は「09 RAGによるコンテキスト拡張」)。
+      </p>
+
+      <h3>大量修正PRのバッチ分割</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>状況</th><th>挙動</th></tr></thead>
+          <tbody>
+            <tr><td>PR全体のdiffが <code>maxDiffChars</code> 以下</td><td>1バッチとして通常どおりレビュー</td></tr>
+            <tr><td>超過するが <code>maxDiffBatches</code> 以内に収まる</td><td>ファイル境界で複数バッチに分割し、バッチ毎にLLMへ送信。findings/summaryをマージして1組のPRコメントとして投稿</td></tr>
+            <tr><td>分割後のバッチ数が <code>maxDiffBatches</code> を超える</td><td>先頭から上限数のバッチのみレビュー。超過分のファイルはサマリコメントの「サイズ上限のため今回のレビュー対象外となったファイル」セクションに明記</td></tr>
+            <tr><td>1ファイル単体が <code>maxDiffChars</code> を超える</td><td>そのファイルだけ先頭カットの単独バッチ(<code>truncated=true</code>)として処理</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        疑似インラインコメントのスニペット引用・増分レビューの対象範囲表示は、バッチ分割前のPR全体diffに基づきます。
+        観点解決・RAG検索・<code>fullFileContextEnabled</code> による全文コンテキスト収集は、各バッチに含まれる変更ファイルに絞って行われます。
       </p>
 
       <div class="diagram">
@@ -1055,6 +1079,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
       <p>
         diff取得・追加コンテキストファイルの収集・RAGによる参考情報の付与・<code>need_more_context</code>
         による追加ファイル要求(「07 レビューの流れ」と同じ往復ループ)は、通常のレビューと同様にこの経路でも行われます。
+        <strong>メンション応答ではバッチ分割は行わず</strong>、<code>review.maxDiffChars</code> を超えるdiffは従来どおり先頭カットで1回のLLM呼び出しに収めます。
         応答は新規のPRコメントとして投稿されます。
       </p>
     </section>
@@ -1064,7 +1089,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
       <h2><span class="eyebrow">09</span>RAGによるコンテキスト拡張</h2>
       <p class="lede">
         <code>rag.enabled: true</code> にすると、langchain4j経由でリポジトリコード全体と<code>.review.yml</code>の
-        <code>knowledgeBase</code>に指定したコーディング規約文書をベクトル検索し、diffに関連しそうなチャンクを
+        <code>knowledgeBase</code>に指定したコーディング規約文書をベクトル検索し、各バッチのdiffに関連しそうなチャンクを
         「参考情報」としてプロンプトへ事前提示します。<strong>07のNパス(<code>need_more_context</code>)を置き換えるものではなく補完するもの</strong>で、
         RAGが拾えなかった/精度が不安な情報は従来どおりLLMがNパスで明示要求できます。
       </p>
@@ -1246,6 +1271,15 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
         </div>
       </details>
       <details class="qa">
+        <summary>大量修正PRで一部のファイルがレビューされていない</summary>
+        <div class="a">
+          <p>サマリコメントに「サイズ上限のため今回のレビュー対象外となったファイル」セクションが付いていないか確認してください。
+            付いている場合、<code>review.maxDiffBatches</code> の上限により今回のレビューから除外されたファイルです。
+            <code>maxDiffChars</code> を上げて1バッチあたりの容量を増やす、または <code>maxDiffBatches</code> を上げて
+            許容バッチ数を増やすことで対応できます(いずれもLLM呼び出し回数・プロンプトサイズ・所要時間が増えます)。</p>
+        </div>
+      </details>
+      <details class="qa">
         <summary>指摘件数が想定より少ない</summary>
         <div class="a">
           <p><code>.review.yml</code> の <code>maxComments</code> はPRコメントに表示する件数の上限です。
@@ -1294,7 +1328,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
         <pre>Main.java                 <span class="c"># 引数解析・起動</span>
 config/                   <span class="c"># config.yml / .review.yml のモデルとローダー</span>
 gitbucket/                <span class="c"># REST APIクライアントとJSONモデル</span>
-git/                      <span class="c"># JGit主経路 + APIフォールバックのdiff/ファイル取得</span>
+git/                      <span class="c"># JGit主経路 + APIフォールバックのdiff/ファイル取得 + DiffBatcherによるバッチ分割</span>
 llm/                      <span class="c"># langchain4jベースのChatModelクライアント・プロンプト構築・応答パース</span>
 rag/                      <span class="c"># langchain4jによるベクトル検索(コード全体・コーディング規約のRAG)</span>
 review/                   <span class="c"># 状態永続化・追加ファイル解決・コメント整形・オーケストレーション(自動レビュー/メンション応答の両方)</span>
