@@ -54,7 +54,7 @@ class CommentFormatterTest {
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
         String body = CommentFormatter.formatFindings(
-                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null, null);
 
         assertTrue(body.contains(CommentFormatter.findingsMarker("abc1234567")));
         assertTrue(body.contains("## 指摘事項"));
@@ -65,12 +65,43 @@ class CommentFormatterTest {
     }
 
     @Test
+    void formatFindingsLinksFileWhenBlobBaseUrlGiven() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです",
+                List.of(new Finding("src/Foo.java", 2, "warning", "命名規則", "命名を見直してください")));
+        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
+
+        String body = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null,
+                "http://localhost:8080/root/sample/blob/abc1234567");
+
+        assertTrue(body.contains("[src/Foo.java:2](http://localhost:8080/root/sample/blob/abc1234567/src/Foo.java#L2)"));
+    }
+
+    @Test
+    void formatFindingsSortsBySeverityPriorityBeforeTruncating() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリ", List.of(
+                new Finding("src/A.java", null, "info", "観点", "info指摘"),
+                new Finding("src/B.java", null, "error", "観点", "error指摘"),
+                new Finding("src/C.java", null, "warning", "観点", "warning指摘")
+        ));
+        UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
+
+        String body = CommentFormatter.formatFindings(
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null, null);
+
+        int errorIdx = body.indexOf("error指摘");
+        int warningIdx = body.indexOf("warning指摘");
+        int infoIdx = body.indexOf("info指摘");
+        assertTrue(errorIdx >= 0 && errorIdx < warningIdx && warningIdx < infoIdx, "error > warning > info の順で並ぶこと");
+    }
+
+    @Test
     void formatFindingsIncludesReferencedAdditionalFiles() {
         ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリ", List.of());
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
         String body = CommentFormatter.formatFindings(
-                output, "abc1234567", "test-model", List.of("src/Bar.java"), 10, diffIndex, null);
+                output, "abc1234567", "test-model", List.of("src/Bar.java"), 10, diffIndex, null, null);
 
         assertTrue(body.contains("参照した追加ファイル"));
         assertTrue(body.contains("src/Bar.java"));
@@ -83,7 +114,7 @@ class CommentFormatterTest {
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
         String body = CommentFormatter.formatFindings(
-                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null);
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, null, null);
 
         assertTrue(body.contains("src/Foo.java:999"));
         assertFalse(body.contains("```diff"), "該当箇所が見つからない場合は引用ブロックを付けない");
@@ -97,7 +128,7 @@ class CommentFormatterTest {
         String summaryBody = CommentFormatter.formatSummary(
                 output, "abc1234567", "test-model", List.of(), "deadbeef00");
         String findingsBody = CommentFormatter.formatFindings(
-                output, "abc1234567", "test-model", List.of(), 10, diffIndex, "deadbeef00");
+                output, "abc1234567", "test-model", List.of(), 10, diffIndex, "deadbeef00", null);
 
         assertTrue(summaryBody.contains("前回レビュー"));
         assertTrue(summaryBody.contains("deadbeef00".substring(0, 10)));

@@ -35,6 +35,8 @@ review:
   maxAdditionalFiles: 12    # ↑5: Nパスで全体整合を確認する余地を広げる
   maxFileChars: 80000       # ↑50000: 大きめのファイルもNパスで丸ごと取得できるように
   maxPasses: 5              # ↑3: 大規模な変更でも往復回数の上限に到達しにくくする
+  fullFileContextEnabled: false  # ハイスペック環境でも既定はオプトインのまま(有効化はコスト影響を理解した上で)
+  fullFileContextMaxFiles: 20
 rag:
   enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
   embeddingProvider: ollama             # ollama | openai-compatible

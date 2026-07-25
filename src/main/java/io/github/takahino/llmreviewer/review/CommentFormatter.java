@@ -5,7 +5,12 @@ import io.github.takahino.llmreviewer.llm.model.Finding;
 import io.github.takahino.llmreviewer.llm.model.MentionReplyOutput;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /** LLMのレビュー結果をGitBucketのPRコメント用Markdownに整形する。 */
 public final class CommentFormatter {
@@ -64,7 +69,8 @@ public final class CommentFormatter {
             List<String> referencedAdditionalFiles,
             int maxComments,
             UnifiedDiffIndex diffIndex,
-            String incrementalPreviousHeadSha
+            String incrementalPreviousHeadSha,
+            String fileBlobBaseUrl
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append(findingsMarker(headSha)).append("\n\n");
@@ -75,11 +81,19 @@ public final class CommentFormatter {
         if (findings.isEmpty()) {
             sb.append("特に指摘事項はありませんでした。\n");
         } else {
-            boolean truncated = findings.size() > maxComments;
-            List<Finding> displayed = truncated ? findings.subList(0, maxComments) : findings;
+            // 表示件数上限で切り詰める前に、確信度の高い指摘(error)が埋もれないようseverity優先度で並べ替える
+            // (Stream.sortedは安定ソートのため、同severity内の順序はLLM出力順を維持する)。
+            List<Finding> sorted = findings.stream()
+                    .sorted(Comparator.comparingInt(f -> severityRank(f.normalizedSeverity())))
+                    .toList();
+            boolean truncated = sorted.size() > maxComments;
+            List<Finding> displayed = truncated ? sorted.subList(0, maxComments) : sorted;
             for (Finding f : displayed) {
-                String location = f.line() != null ? "%s:%d".formatted(f.file(), f.line()) : String.valueOf(f.file());
-                sb.append("- **[").append(severityLabel(f.severity())).append("] ").append(location).append("**");
+                String location = formatLocation(f, fileBlobBaseUrl);
+                // "**[severity] [text](url)**" のように太字を閉じずに隣接した角括弧をまたぐと、
+                // GitBucketのMarkdownレンダラーがリンクの表示テキストをURLそのものにすり替えてしまう
+                // (実機検証で確認済み)。severityとlocationを別々の太字スパンに分けて回避する。
+                sb.append("- **[").append(f.normalizedSeverity()).append("]** **").append(location).append("**");
                 if (!isBlank(f.perspective())) {
                     sb.append(" (観点: ").append(f.perspective()).append(")");
                 }
@@ -87,7 +101,7 @@ public final class CommentFormatter {
                 appendSnippetIfAvailable(sb, diffIndex, f);
             }
             if (truncated) {
-                sb.append("\n(他 ").append(findings.size() - maxComments).append(" 件の指摘は表示上限のため省略されました)\n");
+                sb.append("\n(他 ").append(sorted.size() - maxComments).append(" 件の指摘は表示上限のため省略されました)\n");
             }
         }
         sb.append('\n');
@@ -145,11 +159,31 @@ public final class CommentFormatter {
                 sb.append("  ```diff\n").append(snippet.indent(2)).append("  ```\n"));
     }
 
-    private static String severityLabel(String severity) {
-        if ("error".equals(severity) || "warning".equals(severity)) {
-            return severity;
+    /**
+     * fileBlobBaseUrl({@code {baseUrl}/{owner}/{repo}/blob/{headSha}} 形式、末尾スラッシュなし)が
+     * 与えられている場合はGitBucketのファイル表示ページへのMarkdownリンクにし、無ければプレーンテキストのまま返す。
+     */
+    private static String formatLocation(Finding f, String fileBlobBaseUrl) {
+        String plain = f.line() != null ? "%s:%d".formatted(f.file(), f.line()) : String.valueOf(f.file());
+        if (isBlank(fileBlobBaseUrl) || isBlank(f.file())) {
+            return plain;
         }
-        return "info";
+        String url = fileBlobBaseUrl + "/" + encodePath(f.file()) + (f.line() != null ? "#L" + f.line() : "");
+        return "[%s](%s)".formatted(plain, url);
+    }
+
+    private static String encodePath(String path) {
+        return Arrays.stream(path.split("/"))
+                .map(segment -> URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20"))
+                .collect(Collectors.joining("/"));
+    }
+
+    private static int severityRank(String normalizedSeverity) {
+        return switch (normalizedSeverity) {
+            case "error" -> 0;
+            case "warning" -> 1;
+            default -> 2;
+        };
     }
 
     private static String shortSha(String sha) {

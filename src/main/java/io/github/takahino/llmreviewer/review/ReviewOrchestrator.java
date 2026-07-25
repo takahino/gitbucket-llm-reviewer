@@ -13,6 +13,7 @@ import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.llm.LlmResponseParser;
 import io.github.takahino.llmreviewer.llm.PromptBuilder;
+import io.github.takahino.llmreviewer.llm.model.Finding;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagSearchResult;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /** 1 PR に対するレビューパイプライン全体(diff取得 → 観点解決 → LLM Nパス → コメント投稿)を担う。 */
 public class ReviewOrchestrator implements AutoCloseable {
@@ -44,6 +46,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final CommentPublisher commentPublisher;
     private final RagContextResolver ragContextResolver;
     private final RepoReviewConfigFetcher repoReviewConfigFetcher;
+    private final String scmBaseUrl;
 
     public ReviewOrchestrator(
             ScmClient scmClient,
@@ -55,7 +58,8 @@ public class ReviewOrchestrator implements AutoCloseable {
             String llmModelName,
             boolean dryRun,
             RagContextResolver ragContextResolver,
-            RepoReviewConfigFetcher repoReviewConfigFetcher
+            RepoReviewConfigFetcher repoReviewConfigFetcher,
+            String scmBaseUrl
     ) {
         this.jGitProvider = jGitProvider;
         this.apiFallbackProvider = apiFallbackProvider;
@@ -66,6 +70,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.commentPublisher = new CommentPublisher(scmClient, dryRun);
         this.ragContextResolver = ragContextResolver;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
+        this.scmBaseUrl = scmBaseUrl;
     }
 
     /**
@@ -118,16 +123,19 @@ public class ReviewOrchestrator implements AutoCloseable {
                 loadContextFiles(owner, repoName, pr.head().sha(), reviewContextPaths);
         RagSearchResult ragResult =
                 searchRagContextSafely(owner, repoName, pr, repoConfig, diff, diffIndex.changedFiles());
+        Map<String, String> fullFileContext = collectFullFileContextIfEnabled(
+                owner, repoName, pr.head().sha(), diffIndex.changedFiles(), fileTree);
 
         PromptBuilder promptBuilder = new PromptBuilder(reviewConfig.maxAdditionalFiles());
         ContextFileResolver contextFileResolver =
                 new ContextFileResolver(jGitProvider, reviewConfig.maxAdditionalFiles(), reviewConfig.maxFileChars());
+        FindingValidator findingValidator = new FindingValidator(jGitProvider);
 
         List<ChatMessage> conversation = new ArrayList<>();
-        conversation.add(promptBuilder.systemMessage());
+        conversation.add(promptBuilder.systemMessage(repoConfig.language()));
         conversation.add(promptBuilder.initialUserMessage(
                 pr, repoConfig, perspectiveGroups, fileTree, contextFiles, perspectiveContextFiles, ragResult, diff,
-                diffOutcome.incrementalPreviousHeadSha()));
+                diffOutcome.incrementalPreviousHeadSha(), fullFileContext));
 
         Set<String> referencedFiles = new LinkedHashSet<>();
         ReviewOutput output;
@@ -135,30 +143,55 @@ public class ReviewOrchestrator implements AutoCloseable {
         while (true) {
             pass++;
             output = chatAndParse(conversation, promptBuilder);
-            if (!output.needsMoreContext()) {
+            if (output.needsMoreContext()) {
+                if (pass >= reviewConfig.maxPasses()) {
+                    conversation.add(promptBuilder.forceCompleteMessage());
+                    output = chatAndParse(conversation, promptBuilder);
+                    break;
+                }
+                Map<String, Optional<String>> resolved =
+                        contextFileResolver.resolve(owner, repoName, pr.head().sha(), output.requestedFiles());
+                referencedFiles.addAll(resolved.keySet());
+                conversation.add(promptBuilder.additionalFilesMessage(resolved));
+                continue;
+            }
+
+            List<FindingValidator.ValidationIssue> issues =
+                    findingValidator.validate(owner, repoName, pr.head().sha(), output.findings());
+            if (issues.isEmpty() || pass >= reviewConfig.maxPasses()) {
                 break;
             }
-            if (pass >= reviewConfig.maxPasses()) {
-                conversation.add(promptBuilder.forceCompleteMessage());
-                output = chatAndParse(conversation, promptBuilder);
-                break;
-            }
-            Map<String, Optional<String>> resolved =
-                    contextFileResolver.resolve(owner, repoName, pr.head().sha(), output.requestedFiles());
-            referencedFiles.addAll(resolved.keySet());
-            conversation.add(promptBuilder.additionalFilesMessage(resolved));
+            conversation.add(promptBuilder.findingsCorrectionMessage(issues));
+        }
+
+        // 最終防御: Nパスの矯正リトライで解消しきれなかった不正なfile/lineのfindingsを、投稿直前に除外する
+        // (need_more_contextがmaxPassesに達してforceCompleteMessageで確定した場合は上のループ内で未検証のため)
+        List<FindingValidator.ValidationIssue> finalIssues =
+                findingValidator.validate(owner, repoName, pr.head().sha(), output.findings());
+        if (!finalIssues.isEmpty()) {
+            LOGGER.warning("findings検証で%d件の不正なfile/lineが見つかったため除外して投稿します: %s"
+                    .formatted(finalIssues.size(), key));
+            output = withoutInvalidFindings(output, finalIssues);
         }
 
         List<String> referencedFileList = List.copyOf(referencedFiles);
+        String fileBlobBaseUrl = "%s/%s/%s/blob/%s".formatted(scmBaseUrl, owner, repoName, pr.head().sha());
         List<String> commentBodies = List.of(
                 CommentFormatter.formatSummary(
                         output, pr.head().sha(), llmModelName, referencedFileList,
                         diffOutcome.incrementalPreviousHeadSha()),
                 CommentFormatter.formatFindings(
                         output, pr.head().sha(), llmModelName, referencedFileList, repoConfig.maxComments(),
-                        diffIndex, diffOutcome.incrementalPreviousHeadSha())
+                        diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl)
         );
         commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
+    }
+
+    /** maxPasses到達後もfile/lineが不正なfindingsが残っている場合の最終防御として、該当分を除外する。 */
+    private static ReviewOutput withoutInvalidFindings(ReviewOutput output, List<FindingValidator.ValidationIssue> issues) {
+        Set<Finding> invalid = issues.stream().map(FindingValidator.ValidationIssue::finding).collect(Collectors.toSet());
+        List<Finding> filtered = output.findings().stream().filter(f -> !invalid.contains(f)).toList();
+        return new ReviewOutput(output.status(), output.requestedFiles(), output.summary(), filtered);
     }
 
     /** LLMに問い合わせ、JSONパースに失敗した場合は1回だけ矯正リトライする。成功時は会話履歴にassistant応答を積む。 */
@@ -170,13 +203,15 @@ public class ReviewOrchestrator implements AutoCloseable {
             return output;
         } catch (RuntimeException parseError) {
             LOGGER.log(Level.WARNING, "LLM応答のJSONパースに失敗しました。矯正リトライを行います", parseError);
-            conversation.add(promptBuilder.assistantMessage(raw));
+            // AiMessageはnullのcontentを受け付けないため、content空/nullの応答(reasoning系モデルが
+            // maxTokensを思考トークンで使い切った場合等)でも会話履歴には空文字として記録する。
+            conversation.add(promptBuilder.assistantMessage(raw == null ? "" : raw));
             conversation.add(new UserMessage(
                     "直前の出力はJSONとして解析できませんでした。説明文やコードフェンスを含めず、"
                             + "指定されたJSONスキーマのオブジェクト1つのみを出力し直してください。"));
             String retryRaw = llmClient.chat(conversation);
             ReviewOutput output = LlmResponseParser.parse(retryRaw);
-            conversation.add(promptBuilder.assistantMessage(retryRaw));
+            conversation.add(promptBuilder.assistantMessage(retryRaw == null ? "" : retryRaw));
             return output;
         }
     }
@@ -226,6 +261,17 @@ public class ReviewOrchestrator implements AutoCloseable {
             LOGGER.log(Level.WARNING, "RAG検索に失敗したため、参考情報なしで継続します: %s/%s".formatted(owner, repoName), e);
             return RagSearchResult.empty();
         }
+    }
+
+    /** review.fullFileContextEnabled が有効な場合のみ、変更ファイル全文等の追加コンテキストを収集する(既定はOFF)。 */
+    private Map<String, String> collectFullFileContextIfEnabled(
+            String owner, String repoName, String headSha, List<String> changedFiles, List<String> fileTree) {
+        if (!Boolean.TRUE.equals(reviewConfig.fullFileContextEnabled())) {
+            return Map.of();
+        }
+        FullFileContextCollector collector =
+                new FullFileContextCollector(jGitProvider, reviewConfig.fullFileContextMaxFiles(), reviewConfig.maxFileChars());
+        return collector.collect(owner, repoName, headSha, changedFiles, fileTree);
     }
 
     private List<String> getFileTreeSafely(String owner, String repoName, String headSha) {

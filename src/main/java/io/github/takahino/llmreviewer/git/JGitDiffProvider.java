@@ -27,7 +27,7 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
         mirror.fetch();
         String mergeBase = mirror.resolveMergeBase(pr.base().sha(), pr.head().sha());
         String diff = mirror.unifiedDiff(mergeBase, pr.head().sha(), excludeGlobs);
-        return truncate(diff, maxChars);
+        return DiffTruncator.truncate(diff, maxChars);
     }
 
     /** 前回レビュー済みheadShaから現在のheadShaまでの増分diffを取得する(増分レビュー用)。 */
@@ -36,7 +36,7 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
         RepositoryMirror mirror = mirrorFor(owner, repo);
         mirror.fetch();
         String diff = mirror.unifiedDiff(previousHeadSha, currentHeadSha, excludeGlobs);
-        return truncate(diff, maxChars);
+        return DiffTruncator.truncate(diff, maxChars);
     }
 
     @Override
@@ -52,13 +52,6 @@ public class JGitDiffProvider implements DiffProvider, RepositoryReader, AutoClo
     private RepositoryMirror mirrorFor(String owner, String repo) {
         return mirrors.computeIfAbsent(owner + "/" + repo,
                 key -> new RepositoryMirror(workDir, owner, repo, remoteLocator));
-    }
-
-    private static DiffResult truncate(String diff, int maxChars) {
-        if (diff.length() <= maxChars) {
-            return new DiffResult(diff, false);
-        }
-        return new DiffResult(diff.substring(0, maxChars), true);
     }
 
     @Override

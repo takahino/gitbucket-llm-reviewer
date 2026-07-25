@@ -18,6 +18,12 @@ public final class LlmResponseParser {
     }
 
     public static <T> T parse(String rawContent, Class<T> type) {
+        if (rawContent == null || rawContent.isBlank()) {
+            // reasoning系モデルがmaxTokensを思考トークンで使い切った場合等に、contentが空/nullで
+            // 返ってくることがある。呼び出し元(chatAndParse)の矯正リトライに委ねられるよう、
+            // NPEではなく捕捉可能な例外にする。
+            throw new LlmClientException("LLM応答のcontentが空でした(reasoning用トークンを使い切った可能性があります)");
+        }
         String jsonText = extractJson(rawContent);
         try {
             return MAPPER.readValue(jsonText, type);

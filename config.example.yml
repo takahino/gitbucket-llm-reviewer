@@ -76,6 +76,14 @@ review:
   # LLMとの往復(プロンプト送信→need_more_context→追加ファイル取得→再送信)の上限回数。
   # 到達すると、それ以上ファイルを追加取得せず強制的に complete としての出力を指示する。
   maxPasses: 3
+  # trueにすると、変更ファイルのnew側全文・対応するテストファイル(命名ヒューリスティックで推測)・
+  # 同一ディレクトリの関連ファイルを、diffと合わせて第1パスのプロンプトに含める。
+  # diffだけでは読み取れない前後の文脈を補う一方、プロンプトサイズ・LLM呼び出しコストが増えるため
+  # 既定はfalse(オプトイン)。
+  fullFileContextEnabled: false
+  # fullFileContextEnabled: true の場合に、上記の目的で収集するファイル数の上限
+  # (変更ファイル自体・推測テストファイル・同ディレクトリファイルの合計)。
+  fullFileContextMaxFiles: 20
 
 rag:
   # trueにすると、リポジトリコード全体と .review.yml の knowledgeBase に指定した

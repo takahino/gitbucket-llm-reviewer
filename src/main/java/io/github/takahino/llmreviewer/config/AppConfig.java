@@ -31,7 +31,7 @@ public record AppConfig(
         repositories = List.copyOf(repositories);
         Objects.requireNonNull(llm, "llm 設定は必須です");
         polling = polling != null ? polling : new PollingConfig(null);
-        review = review != null ? review : new ReviewConfig(null, null, null, null);
+        review = review != null ? review : new ReviewConfig(null, null, null, null, null, null);
         rag = rag != null ? rag : new RagConfig(
                 null, null, null, null, null, null, null, null, null, null, null, null);
         state = state != null ? state : new StateConfig(null, null);
@@ -100,13 +100,17 @@ public record AppConfig(
     }
 
     public record ReviewConfig(
-            Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses
+            Integer maxDiffChars, Integer maxAdditionalFiles, Integer maxFileChars, Integer maxPasses,
+            Boolean fullFileContextEnabled, Integer fullFileContextMaxFiles
     ) {
         public ReviewConfig {
             maxDiffChars = maxDiffChars == null ? 200_000 : maxDiffChars;
             maxAdditionalFiles = maxAdditionalFiles == null ? 12 : maxAdditionalFiles;
             maxFileChars = maxFileChars == null ? 80_000 : maxFileChars;
             maxPasses = maxPasses == null ? 5 : maxPasses;
+            // プロンプトサイズ・LLM呼び出しコストが増えるため既定はOFF。有効化はconfig.ymlで明示的に行う。
+            fullFileContextEnabled = fullFileContextEnabled == null ? Boolean.FALSE : fullFileContextEnabled;
+            fullFileContextMaxFiles = fullFileContextMaxFiles == null ? 20 : fullFileContextMaxFiles;
         }
     }
 

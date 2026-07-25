@@ -53,11 +53,7 @@ public class ApiDiffProvider implements DiffProvider {
                 .append("# merge-base差分ではないため、複数コミットにまたがる変更の累積が正確でない場合があります。\n\n");
         latestPatchByFile.values().forEach(combined::append);
 
-        String diff = combined.toString();
-        if (diff.length() <= maxChars) {
-            return new DiffResult(diff, false);
-        }
-        return new DiffResult(diff.substring(0, maxChars), true);
+        return DiffTruncator.truncate(combined.toString(), maxChars);
     }
 
     private static String formatPatch(CommitFileChange file) {
