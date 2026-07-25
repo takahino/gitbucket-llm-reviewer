@@ -433,10 +433,11 @@
       <li><span class="num">05</span><a href="#review-yml-ref" data-toc>.review.yml リファレンス</a></li>
       <li><span class="num">06</span><a href="#cli" data-toc>CLIオプション</a></li>
       <li><span class="num">07</span><a href="#flow" data-toc>レビューの流れ(Nパス)</a></li>
-      <li><span class="num">08</span><a href="#state" data-toc>状態管理と冪等性</a></li>
-      <li><span class="num">09</span><a href="#encoding" data-toc>文字コードの扱い</a></li>
-      <li><span class="num">10</span><a href="#troubleshooting" data-toc>トラブルシューティング</a></li>
-      <li><span class="num">11</span><a href="#appendix" data-toc>付録: ディレクトリ構成</a></li>
+      <li><span class="num">08</span><a href="#rag" data-toc>RAGによるコンテキスト拡張</a></li>
+      <li><span class="num">09</span><a href="#state" data-toc>状態管理と冪等性</a></li>
+      <li><span class="num">10</span><a href="#encoding" data-toc>文字コードの扱い</a></li>
+      <li><span class="num">11</span><a href="#troubleshooting" data-toc>トラブルシューティング</a></li>
+      <li><span class="num">12</span><a href="#appendix" data-toc>付録: ディレクトリ構成</a></li>
     </ol>
   </nav>
 
@@ -455,6 +456,7 @@
         <a href="#config-ref">config.yml 全項目</a>
         <a href="#review-yml-ref">.review.yml 全項目</a>
         <a href="#flow">Nパスの仕組み</a>
+        <a href="#rag">RAG設定</a>
         <a href="#troubleshooting">うまく動かない時</a>
       </div>
     </header>
@@ -466,6 +468,8 @@
         1プロセスの常駐アプリケーションが、監視対象リポジトリを定期的に走査します。
         diffの取得はGitBucketのgit smart HTTPに対するJGitフェッチを主経路とし、
         失敗した場合のみREST APIのコミット単位パッチ連結にフォールバックします。
+        LLM呼び出しはlangchain4j経由で行い、<code>rag.enabled: true</code> の場合は
+        ベクトル検索によるコンテキスト拡張(RAG、詳細は「08」)が加わります。
       </p>
 
       <div class="diagram">
@@ -668,14 +672,50 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>llm.model</code></td><td>string</td><td><span class="req">必須</span></td><td>—</td><td>使用するモデル名</td></tr>
             <tr><td><code>llm.apiKey</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td>設定時のみ <code>Authorization: Bearer ...</code> を付与</td></tr>
             <tr><td><code>llm.temperature</code></td><td>double</td><td><span class="opt">任意</span></td><td><code>0.2</code></td><td>生成の温度</td></tr>
-            <tr><td><code>llm.maxTokens</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>4096</code></td><td>1回の応答の最大トークン数</td></tr>
-            <tr><td><code>llm.timeoutSeconds</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>300</code></td><td>LLM呼び出しのHTTPタイムアウト</td></tr>
-            <tr><td><code>review.maxDiffChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>60000</code></td><td>プロンプトに含めるdiffの最大文字数。超過分は切り詰め、その旨をLLMに明記</td></tr>
-            <tr><td><code>review.maxAdditionalFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>Nパスを通じてLLMが要求できる追加ファイルの総数上限</td></tr>
-            <tr><td><code>review.maxFileChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>50000</code></td><td>追加ファイル1件あたりの最大文字数</td></tr>
-            <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>3</code></td><td>LLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
+            <tr><td><code>llm.maxTokens</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>16384</code></td><td>1回の応答の最大トークン数(reasoning traceを含む長い出力を見込んだ値)</td></tr>
+            <tr><td><code>llm.timeoutSeconds</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>600</code></td><td>LLM呼び出しのHTTPタイムアウト(秒)</td></tr>
+            <tr><td><code>llm.retryMaxAttempts</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>3</code></td><td>LLM呼び出し失敗時の最大試行回数(初回含む)。5xx/408/429は自動リトライ、4xxはリトライしない</td></tr>
+            <tr><td><code>llm.retryBackoffMs</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>2000</code></td><td>リトライ毎の待機時間(ミリ秒)。試行毎に倍加する指数バックオフ</td></tr>
+            <tr><td><code>review.maxDiffChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>200000</code></td><td>プロンプトに含めるdiffの最大文字数。超過分は切り詰め、その旨をLLMに明記</td></tr>
+            <tr><td><code>review.maxAdditionalFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>12</code></td><td>Nパスを通じてLLMが要求できる追加ファイルの総数上限(1回のパスではなくレビューセッション全体での累積上限)</td></tr>
+            <tr><td><code>review.maxFileChars</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>80000</code></td><td>追加ファイル1件あたりの最大文字数</td></tr>
+            <tr><td><code>review.maxPasses</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>5</code></td><td>LLMとの往復回数の上限。到達すると強制的に <code>complete</code> を指示する</td></tr>
             <tr><td><code>state.filePath</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/review-state.json</code></td><td>レビュー済み状態の永続化先</td></tr>
             <tr><td><code>workDir</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/repos</code></td><td>JGitのローカルbareミラーの保存先</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <span class="eyebrow">補足</span>
+        <p>
+          上記のデフォルト値は、RTX5090(VRAM 32GB)・RAM 128GB環境でQwen3.6-35B-A3B(5bit量子化、ネイティブコンテキスト262,144トークン)を
+          使う前提でチューニングされています。より非力な環境・小型モデルで運用する場合は、
+          <code>maxTokens</code> / <code>maxDiffChars</code> / <code>maxAdditionalFiles</code> / <code>maxFileChars</code> / <code>maxPasses</code>
+          を小さめの値に戻すことを推奨します(値を大きくしすぎるとモデルのコンテキスト長を超過したり、1回のレビューが極端に長時間化したりします)。
+        </p>
+      </div>
+
+      <h3><code>rag</code></h3>
+      <p>
+        埋め込みベクトル検索によるコンテキスト拡張(任意機能)の設定です。<code>enabled: false</code>(デフォルト)の場合はこの節の設定は無視され、
+        既存のNパスによる申告制ファイル取得のみで動作します。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>キー</th><th>型</th><th>必須</th><th>デフォルト</th><th>説明</th></tr></thead>
+          <tbody>
+            <tr><td><code>rag.enabled</code></td><td>boolean</td><td><span class="opt">任意</span></td><td><code>false</code></td><td><code>true</code>にするとリポジトリコード・コーディング規約文書のベクトル検索を有効化</td></tr>
+            <tr><td><code>rag.embeddingProvider</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>ollama</code></td><td><code>ollama</code> または <code>openai-compatible</code>(vLLM/LM Studio等のembeddingエンドポイント)</td></tr>
+            <tr><td><code>rag.embeddingBaseUrl</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>http://localhost:11434</code></td><td>embeddingエンドポイントのベースURL</td></tr>
+            <tr><td><code>rag.embeddingModel</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>nomic-embed-text</code></td><td>embeddingモデル名。事前に <code>ollama pull</code> 等で取得しておくこと</td></tr>
+            <tr><td><code>rag.embeddingApiKey</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>""</code></td><td><code>openai-compatible</code>時のみ使用</td></tr>
+            <tr><td><code>rag.topK</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>10</code></td><td>ベクトル検索で取得するチャンク数(コード・規約文書それぞれ)</td></tr>
+            <tr><td><code>rag.minScore</code></td><td>double</td><td><span class="opt">任意</span></td><td><code>0.65</code></td><td>この類似度スコア未満のチャンクは候補から除外</td></tr>
+            <tr><td><code>rag.chunkSize</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>1000</code></td><td>ドキュメント分割時のチャンクサイズ(文字数目安)</td></tr>
+            <tr><td><code>rag.chunkOverlap</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>100</code></td><td>チャンク間のオーバーラップ</td></tr>
+            <tr><td><code>rag.maxIndexFiles</code></td><td>int</td><td><span class="opt">任意</span></td><td><code>10000</code></td><td>リポジトリコード全量インデックス時の対象ファイル数上限</td></tr>
+            <tr><td><code>rag.includeExtensions</code></td><td>string[]</td><td><span class="opt">任意</span></td><td><code>[".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]</code></td><td>インデックス対象とする拡張子</td></tr>
+            <tr><td><code>rag.indexDir</code></td><td>string</td><td><span class="opt">任意</span></td><td><code>./data/rag-index</code></td><td>ベクトルインデックス(<code>InMemoryEmbeddingStore</code>のJSON永続化)の保存先</td></tr>
           </tbody>
         </table>
       </div>
@@ -695,9 +735,11 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>language</code></td><td>string</td><td><code>ja</code></td><td>サマリ・指摘のレビュー言語</td></tr>
             <tr><td><code>perspectives</code></td><td>string[]</td><td>デフォルト観点3件</td><td>リポジトリ全体に適用する共通観点</td></tr>
             <tr><td><code>paths.&lt;glob&gt;.perspectives</code></td><td>string[]</td><td><code>[]</code></td><td>指定globにマッチする変更ファイルにのみ追加される観点(モノレポ対応)</td></tr>
-            <tr><td><code>paths.&lt;glob&gt;.inherit</code></td><td>boolean</td><td><code>true</code></td><td><code>false</code> にすると、このglobにマッチしたファイルには共通観点を適用しない</td></tr>
+            <tr><td><code>paths.&lt;glob&gt;.inherit</code></td><td>boolean</td><td><code>true</code></td><td><code>false</code> にすると、このglobにマッチしたファイルには共通観点・共通<code>knowledgeBase</code>を適用しない</td></tr>
+            <tr><td><code>paths.&lt;glob&gt;.knowledgeBase</code></td><td>string[]</td><td><code>[]</code></td><td>このglobにマッチする変更ファイルにのみ追加されるコーディング規約文書パス(モノレポ対応。<code>rag.enabled=true</code>時のみ使用)</td></tr>
             <tr><td><code>exclude</code></td><td>string[]</td><td><code>[]</code></td><td>diffから除外するglob(生成物・minifyファイル等)</td></tr>
             <tr><td><code>contextFiles</code></td><td>string[]</td><td><code>[]</code></td><td>Nパスを待たず常にLLMへ渡すファイル(README等)</td></tr>
+            <tr><td><code>knowledgeBase</code></td><td>string[]</td><td><code>[]</code></td><td>RAG検索対象のコーディング規約文書パス(リポジトリ共通分。<code>rag.enabled=true</code>時のみ使用)</td></tr>
             <tr><td><code>maxComments</code></td><td>int</td><td><code>10</code></td><td>PRコメントに表示する指摘事項の最大件数。超過分は件数のみ注記</td></tr>
           </tbody>
         </table>
@@ -721,7 +763,9 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
   <span class="s">"backend/**"</span>:
     <span class="k">perspectives</span>:
       - <span class="s">トランザクション境界の妥当性</span>
-    <span class="k">inherit</span>: <span class="n">false</span>  <span class="c"># 共通観点は適用されない</span></pre>
+    <span class="k">inherit</span>: <span class="n">false</span>  <span class="c"># 共通観点・共通knowledgeBaseは適用されない</span>
+    <span class="k">knowledgeBase</span>:
+      - <span class="s">backend/docs/coding-standards.md</span>  <span class="c"># rag.enabled=true時のみ使用</span></pre>
       </div>
 
       <div class="diagram">
@@ -796,7 +840,8 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
       <p class="lede">
         diffだけでは判断がつかない変更(呼び出し元だけが変わり、呼び出し先の実装が見えていない等)に対応するため、
         LLMは追加ファイルを要求できます。ツールはそれを取得して再度同じスキーマで問い合わせます。この往復を
-        <code>review.maxPasses</code> 回まで繰り返します。
+        <code>review.maxPasses</code> 回まで繰り返します。<code>rag.enabled: true</code> の場合、この往復に入る前の
+        初回プロンプトにベクトル検索による参考情報が事前提示されます(詳細は「08 RAGによるコンテキスト拡張」)。
       </p>
 
       <div class="diagram">
@@ -879,8 +924,61 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
     </section>
 
     <!-- ============================================================ -->
+    <section id="rag">
+      <h2><span class="eyebrow">08</span>RAGによるコンテキスト拡張</h2>
+      <p class="lede">
+        <code>rag.enabled: true</code> にすると、langchain4j経由でリポジトリコード全体と<code>.review.yml</code>の
+        <code>knowledgeBase</code>に指定したコーディング規約文書をベクトル検索し、diffに関連しそうなチャンクを
+        「参考情報」としてプロンプトへ事前提示します。<strong>07のNパス(<code>need_more_context</code>)を置き換えるものではなく補完するもの</strong>で、
+        RAGが拾えなかった/精度が不安な情報は従来どおりLLMがNパスで明示要求できます。
+      </p>
+
+      <h3>2種類のインデックス</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>対象</th><th>更新タイミング</th><th>変更検知</th></tr></thead>
+          <tbody>
+            <tr><td>リポジトリコード全体</td><td>初回は全量インデックス、以降はPRのheadSha更新に合わせて変更ファイルのみ増分インデックス</td><td>前回インデックス済みheadShaとの比較(<code>RagIndexStateStore</code>)</td></tr>
+            <tr><td>コーディング規約文書(<code>knowledgeBase</code>)</td><td>参照される都度、内容の変更有無を確認</td><td>ファイル内容のSHA-256ハッシュ比較</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        いずれもlangchain4jの<code>InMemoryEmbeddingStore</code>を用い、<code>rag.indexDir</code>配下にJSONとして永続化されるため、
+        プロセスを再起動してもインデックスの再構築コストは発生しません(内容に変化がない限り)。
+      </p>
+
+      <h3>プロンプトへの反映</h3>
+      <p>
+        検索結果は「関連コード候補」「関連コーディング規約抜粋」という見出しで、通常のdiff・観点セクションより前に挿入されます。
+        いずれも「自動検索による参考情報であり正確性は保証されない」旨を明記した上でLLMに渡されます。
+        embeddingサーバーへの接続に失敗した場合は空の結果として扱われ、RAGなしの従来どおりのレビューフローにフォールバックします
+        (レビュー自体が失敗することはありません)。
+      </p>
+
+      <div class="callout">
+        <span class="eyebrow">精度に関する注意</span>
+        <p>
+          ベクトル類似検索は「意味的に近い」チャンクを返すものであり、呼び出し関係のような構造的な依存関係を正確に特定できるとは限りません。
+          コーディングレビューの正確性が特に重要な確認(呼び出し先の実装確認等)は、RAGの結果を鵜呑みにせず、
+          引き続きNパスによるファイル全文取得に委ねる設計になっています。ローカルの小型embeddingモデルほどこの傾向は強くなるため、
+          <code>rag.minScore</code>を低くしすぎないことを推奨します。
+        </p>
+      </div>
+
+      <h3>設定例(<code>.review.yml</code>)</h3>
+      <div class="code-block">
+        <span class="label">.review.yml(抜粋)</span>
+        <pre><span class="k">knowledgeBase</span>:                <span class="c"># リポジトリ共通のコーディング規約文書</span>
+  - <span class="s">docs/coding-standards.md</span>
+  - <span class="s">docs/adr/*.md</span></pre>
+      </div>
+      <p>設定項目の一覧は「04 config.yml リファレンス」の <code>rag</code> の節を参照してください。</p>
+    </section>
+
+    <!-- ============================================================ -->
     <section id="state">
-      <h2><span class="eyebrow">08</span>状態管理と冪等性</h2>
+      <h2><span class="eyebrow">09</span>状態管理と冪等性</h2>
       <p class="lede">
         <code>state.filePath</code>(デフォルト <code>./data/review-state.json</code>)にPR毎のレビュー済み状態を永続化し、
         同じコミットへの二重レビューを防ぎます。
@@ -917,7 +1015,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 
     <!-- ============================================================ -->
     <section id="encoding">
-      <h2><span class="eyebrow">09</span>文字コードの扱い</h2>
+      <h2><span class="eyebrow">10</span>文字コードの扱い</h2>
       <div class="callout">
         <span class="eyebrow">重要</span>
         <p>
@@ -938,7 +1036,7 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 
     <!-- ============================================================ -->
     <section id="troubleshooting">
-      <h2><span class="eyebrow">10</span>トラブルシューティング</h2>
+      <h2><span class="eyebrow">11</span>トラブルシューティング</h2>
 
       <details class="qa" open>
         <summary>JGitのfetchが認証エラーになる</summary>
@@ -990,11 +1088,20 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             超過分は「他N件の指摘は表示上限のため省略されました」という注記になります(LLM自体はより多く検出している場合があります)。</p>
         </div>
       </details>
+      <details class="qa">
+        <summary>RAG(<code>rag.enabled: true</code>)を有効にしてもレビュー内容が変わらない</summary>
+        <div class="a">
+          <p>embeddingサーバー(<code>rag.embeddingBaseUrl</code>)への接続に失敗した場合、RAG検索は空の結果として扱われ、
+            ログに警告を出したうえで通常どおりレビューが継続されます(レビュー自体は失敗しません)。ログに
+            「RAG検索に失敗したため、参考情報なしで継続します」が出ていないか確認してください。また、初回のリポジトリ全量インデックス構築には
+            時間がかかるため、大きめのリポジトリでは1回目のレビューでは十分な検索結果が得られないことがあります。</p>
+        </div>
+      </details>
     </section>
 
     <!-- ============================================================ -->
     <section id="appendix">
-      <h2><span class="eyebrow">11</span>付録: ディレクトリ構成</h2>
+      <h2><span class="eyebrow">12</span>付録: ディレクトリ構成</h2>
       <p class="lede">実装のパッケージ構成です。挙動を詳しく追いたい場合の目印にしてください。</p>
       <div class="code-block">
         <span class="label">src/main/java/io/github/takahino/llmreviewer/</span>
@@ -1002,7 +1109,8 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
 config/                   <span class="c"># config.yml / .review.yml のモデルとローダー</span>
 gitbucket/                <span class="c"># REST APIクライアントとJSONモデル</span>
 git/                      <span class="c"># JGit主経路 + APIフォールバックのdiff/ファイル取得</span>
-llm/                      <span class="c"># OpenAI互換クライアント・プロンプト構築・応答パース</span>
+llm/                      <span class="c"># langchain4jベースのChatModelクライアント・プロンプト構築・応答パース</span>
+rag/                      <span class="c"># langchain4jによるベクトル検索(コード全体・コーディング規約のRAG)</span>
 review/                   <span class="c"># 状態永続化・追加ファイル解決・コメント整形・オーケストレーション</span>
 util/                     <span class="c"># ログ設定・文字コード自動判定</span></pre>
       </div>
