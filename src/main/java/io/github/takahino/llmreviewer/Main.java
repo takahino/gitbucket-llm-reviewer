@@ -15,10 +15,14 @@ import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagIndexStateStore;
 import io.github.takahino.llmreviewer.rag.RepoCodeIndexService;
 import io.github.takahino.llmreviewer.review.PollingService;
+import io.github.takahino.llmreviewer.review.RepoReviewConfigFetcher;
 import io.github.takahino.llmreviewer.review.ReviewOrchestrator;
 import io.github.takahino.llmreviewer.review.ReviewStateStore;
 import io.github.takahino.llmreviewer.util.LogSetup;
+import io.github.takahino.llmreviewer.web.WebUiServer;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -42,6 +46,12 @@ public final class Main {
     private static void run(String[] args) {
         Arguments arguments = Arguments.parse(args);
         AppConfig config = AppConfigLoader.load(Path.of(arguments.configPath()));
+
+        if (arguments.ui()) {
+            runUiMode(config, Path.of(arguments.configPath()), arguments.uiPort());
+            return;
+        }
+
         logStartupSummary(config, arguments);
 
         GitBucketClient gitBucketClient = new GitBucketClient(config.gitbucket());
@@ -50,10 +60,12 @@ public final class Main {
         LlmClient llmClient = new LlmClient(config.llm());
         ReviewStateStore stateStore = new ReviewStateStore(Path.of(config.state().filePath()));
         RagContextResolver ragContextResolver = createRagContextResolver(config.rag(), jGitProvider);
+        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(gitBucketClient, jGitProvider);
 
         ReviewOrchestrator orchestrator = new ReviewOrchestrator(
                 gitBucketClient, jGitProvider, apiFallbackProvider, llmClient, stateStore,
-                config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver);
+                config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
+                repoReviewConfigFetcher);
 
         PollingService pollingService = new PollingService(
                 gitBucketClient, orchestrator, config.repositories(), config.polling().intervalSeconds());
@@ -66,6 +78,32 @@ public final class Main {
             LOGGER.info("ポーリングを開始します(間隔: %d秒)".formatted(config.polling().intervalSeconds()));
             pollingService.startPolling();
         }
+    }
+
+    /**
+     * config.yml編集・review.yml表示専用の管理UIサーバーを起動する(ポーリングは行わない)。
+     * AppConfigは不変recordで起動時に一度だけ読み込まれる設計のため、実行中のポーリングプロセスに
+     * config.yml編集を反映するホットリロードの仕組みは無い。UIでの編集後は通常起動で再起動して反映する。
+     */
+    private static void runUiMode(AppConfig config, Path configPath, int port) {
+        GitBucketClient gitBucketClient = new GitBucketClient(config.gitbucket());
+        JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), config.gitbucket());
+        RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(gitBucketClient, jGitProvider);
+
+        WebUiServer server;
+        try {
+            server = new WebUiServer(port, configPath, config, gitBucketClient, repoReviewConfigFetcher);
+        } catch (IOException e) {
+            jGitProvider.close();
+            throw new UncheckedIOException("管理UIサーバーの起動に失敗しました(port=%d)".formatted(port), e);
+        }
+        server.start();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            LOGGER.info("シャットダウン要求を受信、管理UIを停止します");
+            server.stop();
+            jGitProvider.close();
+        }, "ui-shutdown-hook"));
+        LOGGER.info("管理UIを起動しました: http://127.0.0.1:%d/ (Ctrl+Cで終了、config.yml=%s)".formatted(port, configPath));
     }
 
     private static RagContextResolver createRagContextResolver(AppConfig.RagConfig ragConfig, JGitDiffProvider jGitProvider) {
@@ -97,20 +135,29 @@ public final class Main {
         return token.substring(0, 4) + "****";
     }
 
-    private record Arguments(String configPath, boolean once, boolean dryRun) {
+    private record Arguments(String configPath, boolean once, boolean dryRun, boolean ui, int uiPort) {
+        private static final int DEFAULT_UI_PORT = 8765;
+
         static Arguments parse(String[] args) {
             String configPath = "./config.yml";
             boolean once = false;
             boolean dryRun = false;
+            boolean ui = false;
+            int uiPort = DEFAULT_UI_PORT;
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
                     case "--config" -> configPath = args[++i];
                     case "--once" -> once = true;
                     case "--dry-run" -> dryRun = true;
+                    case "--ui" -> ui = true;
+                    case "--ui-port" -> uiPort = Integer.parseInt(args[++i]);
                     default -> throw new IllegalArgumentException("不明な引数です: " + args[i]);
                 }
             }
-            return new Arguments(configPath, once, dryRun);
+            if (ui && (once || dryRun)) {
+                throw new IllegalArgumentException("--ui は --once/--dry-run と併用できません");
+            }
+            return new Arguments(configPath, once, dryRun, ui, uiPort);
         }
     }
 }

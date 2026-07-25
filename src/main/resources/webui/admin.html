@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gitbucket-llm-reviewer 管理UI</title>
+<style>
+  :root {
+    --bg: #eef0ea;
+    --surface: #ffffff;
+    --surface-2: #e4e7dd;
+    --ink: #1a1f1b;
+    --ink-muted: #4b564f;
+    --ink-faint: #7c877e;
+    --line: rgba(26,31,27,0.14);
+    --line-strong: rgba(26,31,27,0.28);
+    --accent: #a6431e;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(166,67,30,0.10);
+    --teal: #2f6e62;
+    --teal-soft: rgba(47,110,98,0.12);
+    --amber: #8a6516;
+    --amber-soft: rgba(185,131,40,0.16);
+    --red: #a5342f;
+    --red-soft: rgba(178,58,58,0.12);
+    --radius: 4px;
+    --font-display: "Yu Mincho", "游明朝", "Hiragino Mincho ProN", "HG Mincho E", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --font-body: "Yu Gothic", "游ゴシック", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181c; --surface: #1c2120; --surface-2: #232823;
+      --ink: #edefe8; --ink-muted: #a9b2a6; --ink-faint: #77817a;
+      --line: rgba(237,239,232,0.14); --line-strong: rgba(237,239,232,0.26);
+      --accent: #dd8a57; --accent-ink: #201207; --accent-soft: rgba(221,138,87,0.14);
+      --teal: #6cc0ac; --teal-soft: rgba(108,192,172,0.14);
+      --amber: #e0b25c; --amber-soft: rgba(224,178,92,0.16);
+      --red: #e2726b; --red-soft: rgba(226,114,107,0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181c; --surface: #1c2120; --surface-2: #232823;
+    --ink: #edefe8; --ink-muted: #a9b2a6; --ink-faint: #77817a;
+    --line: rgba(237,239,232,0.14); --line-strong: rgba(237,239,232,0.26);
+    --accent: #dd8a57; --accent-ink: #201207; --accent-soft: rgba(221,138,87,0.14);
+    --teal: #6cc0ac; --teal-soft: rgba(108,192,172,0.14);
+    --amber: #e0b25c; --amber-soft: rgba(224,178,92,0.16);
+    --red: #e2726b; --red-soft: rgba(226,114,107,0.14);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef0ea; --surface: #ffffff; --surface-2: #e4e7dd;
+    --ink: #1a1f1b; --ink-muted: #4b564f; --ink-faint: #7c877e;
+    --line: rgba(26,31,27,0.14); --line-strong: rgba(26,31,27,0.28);
+    --accent: #a6431e; --accent-ink: #ffffff; --accent-soft: rgba(166,67,30,0.10);
+    --teal: #2f6e62; --teal-soft: rgba(47,110,98,0.12);
+    --amber: #8a6516; --amber-soft: rgba(185,131,40,0.16);
+    --red: #a5342f; --red-soft: rgba(178,58,58,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre, kbd, .mono, input, select { font-family: var(--font-mono); }
+
+  .shell { max-width: 980px; margin: 0 auto; padding: 0 20px 64px; }
+
+  header.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding: 18px 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 24px;
+  }
+  .brand { font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; margin-right: auto; }
+  .brand small {
+    display: block; font-family: var(--font-mono); font-size: 0.65rem;
+    letter-spacing: 0.08em; color: var(--ink-faint); margin-top: 2px; font-weight: 400;
+  }
+  .tabs { display: flex; gap: 4px; }
+  .tab-button {
+    font: inherit; font-size: 0.85rem; color: var(--ink-muted);
+    background: transparent; border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 8px 16px; cursor: pointer;
+  }
+  .tab-button.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  #save-status { font-size: 0.78rem; color: var(--ink-faint); font-family: var(--font-mono); min-width: 140px; text-align: right; }
+  #save-status.saving { color: var(--amber); }
+
+  .tab-panel[hidden] { display: none; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 20px 22px; margin-bottom: 18px;
+  }
+  .card h2 { font-family: var(--font-display); font-size: 1.05rem; margin: 0 0 4px; }
+  .card .card-sub { color: var(--ink-faint); font-size: 0.8rem; margin: 0 0 14px; }
+  .card.has-error { border-color: var(--red); }
+
+  .card-error, #global-error {
+    background: var(--red-soft); color: var(--red); border-radius: var(--radius);
+    padding: 8px 12px; font-size: 0.82rem; margin-bottom: 12px;
+  }
+  .card-error[hidden], #global-error[hidden] { display: none; }
+
+  .field-note { color: var(--amber); font-size: 0.76rem; margin: 4px 0 0; }
+  .field-note[hidden] { display: none; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 18px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field.wide { grid-column: 1 / -1; }
+  .field label { font-size: 0.78rem; color: var(--ink-muted); }
+  .field label .required { color: var(--accent); margin-left: 2px; }
+  .field-input, select.field-input {
+    font-size: 0.88rem; padding: 7px 9px; border: 1px solid var(--line-strong);
+    border-radius: var(--radius); background: var(--surface); color: var(--ink); width: 100%;
+  }
+  .field-input:focus, select.field-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .field input[type="checkbox"] { width: auto; align-self: flex-start; transform: scale(1.1); }
+  .field-toggle-link { font-size: 0.76rem; margin-top: 2px; }
+
+  .password-wrapper { display: flex; gap: 6px; }
+  .password-wrapper .field-input { flex: 1; }
+  .toggle-visibility {
+    border: 1px solid var(--line-strong); background: var(--surface-2); border-radius: var(--radius);
+    cursor: pointer; padding: 0 10px; font-size: 0.8rem; color: var(--ink-muted);
+  }
+
+  #repositories-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .repo-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+  .repo-remove {
+    border: 1px solid var(--line-strong); background: var(--surface-2); border-radius: var(--radius);
+    cursor: pointer; width: 32px; height: 32px; color: var(--red);
+  }
+  .btn {
+    font: inherit; font-size: 0.82rem; border: 1px solid var(--line-strong); border-radius: var(--radius);
+    background: var(--surface-2); color: var(--ink); padding: 7px 14px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .review-controls { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 18px; }
+  .review-controls .field { flex: 1; max-width: 360px; }
+
+  .yaml-block {
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; font-size: 0.82rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .context-file {
+    border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; background: var(--surface);
+  }
+  .context-file summary {
+    padding: 10px 14px; cursor: pointer; font-size: 0.85rem; display: flex; gap: 8px; align-items: center;
+  }
+  .context-file summary .used-by { color: var(--ink-faint); font-size: 0.76rem; }
+  .context-file pre { margin: 0; padding: 0 14px 14px; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+  .context-file.missing {
+    padding: 10px 14px; font-size: 0.85rem; color: var(--ink-faint); border: 1px dashed var(--line-strong);
+    border-radius: var(--radius); margin-bottom: 8px;
+  }
+  .muted { color: var(--ink-faint); }
+  .error-text { color: var(--red); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      gitbucket-llm-reviewer
+      <small>管理UI &mdash; localhost専用</small>
+    </div>
+    <nav class="tabs">
+      <button type="button" class="tab-button active" data-target="panel-config">設定 (config.yml)</button>
+      <button type="button" class="tab-button" data-target="panel-review">review.yml 表示</button>
+    </nav>
+    <div id="save-status" aria-live="polite"></div>
+  </header>
+
+  <main>
+    <section id="panel-config" class="tab-panel">
+      <div id="global-error" hidden></div>
+
+      <div class="card" id="section-gitbucket">
+        <h2>GitBucket接続</h2>
+        <div class="card-error" hidden></div>
+        <div class="grid">
+          <div class="field">
+            <label>ベースURL<span class="required">*</span></label>
+            <input class="field-input" data-path="gitbucket.baseUrl" placeholder="http://localhost:8080">
+          </div>
+          <div class="field">
+            <label>APIトークン<span class="required">*</span></label>
+            <div class="password-wrapper">
+              <input type="password" class="field-input" data-path="gitbucket.token">
+              <button type="button" class="toggle-visibility">表示</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Git用ユーザー名(任意)</label>
+            <input class="field-input" data-path="gitbucket.gitUsername">
+          </div>
+          <div class="field">
+            <label>Git用パスワード(任意)</label>
+            <div class="password-wrapper">
+              <input type="password" class="field-input" data-path="gitbucket.gitPassword">
+              <button type="button" class="toggle-visibility">表示</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="section-repositories">
+        <h2>監視対象リポジトリ</h2>
+        <p class="card-sub">最低1件必要。ここに列挙したリポジトリのみポーリング対象になる。</p>
+        <div class="card-error" hidden></div>
+        <div id="repositories-list"></div>
+        <button type="button" class="btn" id="add-repository">+ リポジトリを追加</button>
+      </div>
+
+      <div class="card">
+        <h2>ポーリング</h2>
+        <div class="grid">
+          <div class="field">
+            <label>間隔(秒)</label>
+            <input type="number" class="field-input" data-path="polling.intervalSeconds" min="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="section-llm">
+        <h2>LLM(レビュー生成)</h2>
+        <div class="card-error" hidden></div>
+        <div class="grid">
+          <div class="field">
+            <label>ベースURL<span class="required">*</span></label>
+            <input class="field-input" data-path="llm.baseUrl" placeholder="http://localhost:11434/v1">
+          </div>
+          <div class="field" id="llm-model-field">
+            <label>モデル名<span class="required">*</span></label>
+            <input class="field-input" data-path="llm.model">
+            <p class="field-note" hidden></p>
+          </div>
+          <div class="field">
+            <label>APIキー(任意)</label>
+            <div class="password-wrapper">
+              <input type="password" class="field-input" data-path="llm.apiKey">
+              <button type="button" class="toggle-visibility">表示</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>温度(temperature)</label>
+            <input type="number" step="0.1" class="field-input" data-path="llm.temperature">
+          </div>
+          <div class="field">
+            <label>最大トークン数</label>
+            <input type="number" class="field-input" data-path="llm.maxTokens">
+          </div>
+          <div class="field">
+            <label>タイムアウト(秒)</label>
+            <input type="number" class="field-input" data-path="llm.timeoutSeconds">
+          </div>
+          <div class="field">
+            <label>リトライ最大回数</label>
+            <input type="number" class="field-input" data-path="llm.retryMaxAttempts">
+          </div>
+          <div class="field">
+            <label>リトライ待機(ms)</label>
+            <input type="number" class="field-input" data-path="llm.retryBackoffMs">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>レビュー動作</h2>
+        <div class="grid">
+          <div class="field">
+            <label>diff最大文字数</label>
+            <input type="number" class="field-input" data-path="review.maxDiffChars">
+          </div>
+          <div class="field">
+            <label>追加ファイル取得上限</label>
+            <input type="number" class="field-input" data-path="review.maxAdditionalFiles">
+          </div>
+          <div class="field">
+            <label>追加ファイル1件の最大文字数</label>
+            <input type="number" class="field-input" data-path="review.maxFileChars">
+          </div>
+          <div class="field">
+            <label>LLM往復回数上限</label>
+            <input type="number" class="field-input" data-path="review.maxPasses">
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="section-rag">
+        <h2>RAG(コード・規約検索)</h2>
+        <div class="card-error" hidden></div>
+        <div class="grid">
+          <div class="field">
+            <label><input type="checkbox" data-path="rag.enabled"> 有効化する</label>
+          </div>
+          <div class="field">
+            <label>embedding提供元</label>
+            <select class="field-input" data-path="rag.embeddingProvider">
+              <option value="ollama">ollama</option>
+              <option value="openai-compatible">openai-compatible</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>embeddingベースURL</label>
+            <input class="field-input" data-path="rag.embeddingBaseUrl">
+          </div>
+          <div class="field" id="rag-embedding-model-field">
+            <label>embeddingモデル名</label>
+            <input class="field-input" data-path="rag.embeddingModel">
+            <p class="field-note" hidden></p>
+          </div>
+          <div class="field">
+            <label>embedding APIキー(任意)</label>
+            <div class="password-wrapper">
+              <input type="password" class="field-input" data-path="rag.embeddingApiKey">
+              <button type="button" class="toggle-visibility">表示</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>topK</label>
+            <input type="number" class="field-input" data-path="rag.topK">
+          </div>
+          <div class="field">
+            <label>最小スコア</label>
+            <input type="number" step="0.01" class="field-input" data-path="rag.minScore">
+          </div>
+          <div class="field">
+            <label>チャンクサイズ</label>
+            <input type="number" class="field-input" data-path="rag.chunkSize">
+          </div>
+          <div class="field">
+            <label>チャンクオーバーラップ</label>
+            <input type="number" class="field-input" data-path="rag.chunkOverlap">
+          </div>
+          <div class="field">
+            <label>インデックス対象ファイル数上限</label>
+            <input type="number" class="field-input" data-path="rag.maxIndexFiles">
+          </div>
+          <div class="field wide">
+            <label>インデックス対象拡張子(カンマ区切り)</label>
+            <input class="field-input" data-path="rag.includeExtensions" placeholder=".java, .kt, .ts">
+          </div>
+          <div class="field wide">
+            <label>インデックス保存先</label>
+            <input class="field-input" data-path="rag.indexDir">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>状態・作業ディレクトリ</h2>
+        <div class="grid">
+          <div class="field">
+            <label>レビュー状態ファイル</label>
+            <input class="field-input" data-path="state.filePath">
+          </div>
+          <div class="field">
+            <label>作業ディレクトリ(workDir)</label>
+            <input class="field-input" data-path="workDir">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-review" class="tab-panel" hidden>
+      <div class="review-controls">
+        <div class="field">
+          <label for="review-repo-select">リポジトリ</label>
+          <select id="review-repo-select" class="field-input"></select>
+        </div>
+      </div>
+      <div id="review-yml-result"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var state = { config: null };
+  var saveTimer = null;
+  var saveInFlight = false;
+  var saveQueued = false;
+  var requestSeq = 0;
+  var modelRefreshTimers = {};
+
+  function getByPath(obj, path) {
+    return path.split(".").reduce(function (acc, key) { return acc == null ? undefined : acc[key]; }, obj);
+  }
+  function setByPath(obj, path, value) {
+    var keys = path.split(".");
+    var cur = obj;
+    for (var i = 0; i < keys.length - 1; i++) {
+      if (cur[keys[i]] == null) { cur[keys[i]] = {}; }
+      cur = cur[keys[i]];
+    }
+    cur[keys[keys.length - 1]] = value;
+  }
+  function escapeHtml(str) {
+    if (str == null) { return ""; }
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  /* ---------- タブ切り替え ---------- */
+  document.querySelectorAll(".tab-button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".tab-button").forEach(function (b) { b.classList.remove("active"); });
+      document.querySelectorAll(".tab-panel").forEach(function (p) { p.hidden = true; });
+      btn.classList.add("active");
+      document.getElementById(btn.dataset.target).hidden = false;
+      if (btn.dataset.target === "panel-review") { loadReviewYmlTab(); }
+    });
+  });
+
+  /* ---------- パスワード表示切替 ---------- */
+  document.querySelectorAll(".toggle-visibility").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var input = btn.previousElementSibling;
+      input.type = input.type === "password" ? "text" : "password";
+    });
+  });
+
+  /* ---------- config.yml 自動保存 ---------- */
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 600);
+  }
+
+  function doSave() {
+    if (saveInFlight) { saveQueued = true; return; }
+    saveInFlight = true;
+    var seq = ++requestSeq;
+    showSavingIndicator();
+    fetch("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.config)
+    }).then(function (res) {
+      return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+    }).then(function (result) {
+      if (seq !== requestSeq) { return; }
+      if (result.ok) {
+        state.config = result.data;
+        populateSimpleFields();
+        clearAllErrors();
+        showSavedIndicator();
+      } else {
+        showError(result.data && result.data.error);
+      }
+    }).catch(function (e) {
+      if (seq !== requestSeq) { return; }
+      showError("サーバーに接続できません: " + e.message);
+    }).finally(function () {
+      saveInFlight = false;
+      if (saveQueued) { saveQueued = false; doSave(); }
+    });
+  }
+
+  function showSavingIndicator() {
+    var el = document.getElementById("save-status");
+    el.textContent = "保存中…";
+    el.classList.add("saving");
+  }
+  function showSavedIndicator() {
+    var el = document.getElementById("save-status");
+    var now = new Date();
+    function pad(n) { return String(n).padStart(2, "0"); }
+    el.textContent = "保存済み " + pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
+    el.classList.remove("saving");
+  }
+
+  function showError(message) {
+    clearAllErrors();
+    var match = message && message.match(/^[a-zA-Z]+/);
+    var section = match ? match[0] : null;
+    var target = section && document.getElementById("section-" + section);
+    if (target) {
+      target.classList.add("has-error");
+      var banner = target.querySelector(".card-error");
+      banner.textContent = message;
+      banner.hidden = false;
+    } else {
+      var g = document.getElementById("global-error");
+      g.textContent = message || "保存に失敗しました";
+      g.hidden = false;
+    }
+  }
+  function clearAllErrors() {
+    document.querySelectorAll(".card-error").forEach(function (el) { el.hidden = true; el.textContent = ""; });
+    document.querySelectorAll(".card.has-error").forEach(function (el) { el.classList.remove("has-error"); });
+    var g = document.getElementById("global-error");
+    g.hidden = true; g.textContent = "";
+  }
+
+  /* ---------- フォーム反映 ---------- */
+  function populateSimpleFields() {
+    document.querySelectorAll("[data-path]").forEach(function (el) {
+      if (el === document.activeElement) { return; }
+      var path = el.dataset.path;
+      var value = getByPath(state.config, path);
+      if (el.type === "checkbox") {
+        el.checked = !!value;
+      } else if (path === "rag.includeExtensions") {
+        el.value = Array.isArray(value) ? value.join(", ") : "";
+      } else {
+        el.value = value == null ? "" : value;
+      }
+    });
+  }
+
+  function attachFieldListeners(root) {
+    (root || document).querySelectorAll("[data-path]").forEach(function (el) {
+      var eventName = (el.tagName === "SELECT" || el.type === "checkbox") ? "change" : "input";
+      el.addEventListener(eventName, function () { onFieldChanged(el); });
+    });
+  }
+
+  function onFieldChanged(el) {
+    var path = el.dataset.path;
+    var value;
+    if (el.type === "checkbox") {
+      value = el.checked;
+    } else if (el.type === "number") {
+      value = el.value === "" ? null : Number(el.value);
+    } else if (path === "rag.includeExtensions") {
+      value = el.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+    } else {
+      value = el.value;
+    }
+    setByPath(state.config, path, value);
+    scheduleSave();
+    if (path === "llm.baseUrl") { scheduleModelRefresh("llm"); }
+    if (path === "rag.embeddingBaseUrl" || path === "rag.embeddingProvider") { scheduleModelRefresh("rag"); }
+  }
+
+  /* ---------- リポジトリ一覧(可変行) ---------- */
+  function renderRepositories() {
+    var list = document.getElementById("repositories-list");
+    list.innerHTML = "";
+    (state.config.repositories || []).forEach(function (r) { addRepositoryRow(r.owner, r.name); });
+  }
+
+  function addRepositoryRow(owner, name) {
+    var list = document.getElementById("repositories-list");
+    var row = document.createElement("div");
+    row.className = "repo-row";
+    var ownerInput = document.createElement("input");
+    ownerInput.className = "field-input repo-owner";
+    ownerInput.placeholder = "owner";
+    ownerInput.value = owner || "";
+    var nameInput = document.createElement("input");
+    nameInput.className = "field-input repo-name";
+    nameInput.placeholder = "name";
+    nameInput.value = name || "";
+    var removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "repo-remove";
+    removeBtn.textContent = "×";
+    removeBtn.setAttribute("aria-label", "削除");
+
+    ownerInput.addEventListener("input", onRepositoriesChanged);
+    nameInput.addEventListener("input", onRepositoriesChanged);
+    removeBtn.addEventListener("click", function () { row.remove(); onRepositoriesChanged(); });
+
+    row.appendChild(ownerInput);
+    row.appendChild(nameInput);
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  }
+
+  function onRepositoriesChanged() {
+    var rows = document.querySelectorAll("#repositories-list .repo-row");
+    state.config.repositories = Array.from(rows).map(function (row) {
+      return {
+        owner: row.querySelector(".repo-owner").value.trim(),
+        name: row.querySelector(".repo-name").value.trim()
+      };
+    });
+    scheduleSave();
+  }
+
+  document.getElementById("add-repository").addEventListener("click", function () {
+    addRepositoryRow("", "");
+    onRepositoriesChanged();
+  });
+
+  /* ---------- モデル一覧プルダウン ---------- */
+  function scheduleModelRefresh(target) {
+    clearTimeout(modelRefreshTimers[target]);
+    modelRefreshTimers[target] = setTimeout(function () { refreshModelOptions(target); }, 800);
+  }
+
+  function refreshModelOptions(target) {
+    if (target === "llm") {
+      var baseUrl = getByPath(state.config, "llm.baseUrl");
+      if (!baseUrl) { return; }
+      fetch("/api/llm/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: baseUrl, apiKey: getByPath(state.config, "llm.apiKey") })
+      }).then(function (res) { return res.json(); })
+        .then(function (data) { applyModelOptions("llm.model", data); })
+        .catch(function (e) { applyModelOptions("llm.model", { ok: false, error: e.message }); });
+    } else {
+      var embeddingBaseUrl = getByPath(state.config, "rag.embeddingBaseUrl");
+      if (!embeddingBaseUrl) { return; }
+      fetch("/api/embedding/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseUrl: embeddingBaseUrl,
+          provider: getByPath(state.config, "rag.embeddingProvider"),
+          apiKey: getByPath(state.config, "rag.embeddingApiKey")
+        })
+      }).then(function (res) { return res.json(); })
+        .then(function (data) { applyModelOptions("rag.embeddingModel", data); })
+        .catch(function (e) { applyModelOptions("rag.embeddingModel", { ok: false, error: e.message }); });
+    }
+  }
+
+  function applyModelOptions(path, result) {
+    var wrapper = document.getElementById(path === "llm.model" ? "llm-model-field" : "rag-embedding-model-field");
+    var note = wrapper.querySelector(".field-note");
+    if (result && result.ok && result.models && result.models.length > 0) {
+      renderModelSelect(wrapper, path, result.models);
+      note.hidden = true;
+      note.textContent = "";
+    } else {
+      renderModelFreeText(wrapper, path);
+      note.hidden = false;
+      note.textContent = "モデル一覧を取得できませんでした。自由入力で指定してください。";
+    }
+  }
+
+  function renderModelSelect(wrapper, path, models) {
+    var input = wrapper.querySelector(".field-input");
+    if (input.tagName === "SELECT" && input === document.activeElement) { return; }
+    var currentValue = getByPath(state.config, path) || "";
+    var select = document.createElement("select");
+    select.className = "field-input";
+    select.dataset.path = path;
+    var values = (models.indexOf(currentValue) >= 0 || !currentValue) ? models : [currentValue].concat(models);
+    values.forEach(function (m) {
+      var opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = (m === currentValue && models.indexOf(currentValue) < 0) ? ("現在の値: " + m) : m;
+      select.appendChild(opt);
+    });
+    select.value = currentValue;
+    select.addEventListener("change", function () { onFieldChanged(select); });
+    input.replaceWith(select);
+
+    var toggle = wrapper.querySelector(".field-toggle-link");
+    if (!toggle) {
+      toggle = document.createElement("a");
+      toggle.href = "#";
+      toggle.className = "field-toggle-link";
+      toggle.textContent = "自由入力に切り替え";
+      wrapper.insertBefore(toggle, wrapper.querySelector(".field-note"));
+    }
+    toggle.onclick = function (e) { e.preventDefault(); renderModelFreeText(wrapper, path); };
+  }
+
+  function renderModelFreeText(wrapper, path) {
+    var input = wrapper.querySelector(".field-input");
+    if (input.tagName !== "SELECT") { return; }
+    var text = document.createElement("input");
+    text.type = "text";
+    text.className = "field-input";
+    text.dataset.path = path;
+    text.value = getByPath(state.config, path) || "";
+    text.addEventListener("input", function () { onFieldChanged(text); });
+    input.replaceWith(text);
+    var toggle = wrapper.querySelector(".field-toggle-link");
+    if (toggle) { toggle.remove(); }
+  }
+
+  /* ---------- review.yml 表示タブ ---------- */
+  function loadReviewYmlTab() {
+    var select = document.getElementById("review-repo-select");
+    select.innerHTML = "";
+    (state.config.repositories || []).forEach(function (r) {
+      if (!r.owner || !r.name) { return; }
+      var opt = document.createElement("option");
+      opt.value = r.owner + "/" + r.name;
+      opt.textContent = r.owner + "/" + r.name;
+      select.appendChild(opt);
+    });
+    if (select.options.length > 0) {
+      fetchReviewYml(select.value);
+    } else {
+      document.getElementById("review-yml-result").innerHTML =
+        '<p class="muted">監視対象リポジトリが設定されていません。</p>';
+    }
+  }
+
+  document.getElementById("review-repo-select").addEventListener("change", function (e) {
+    fetchReviewYml(e.target.value);
+  });
+
+  function fetchReviewYml(fullName) {
+    var parts = fullName.split("/");
+    var owner = parts[0], repo = parts[1];
+    var container = document.getElementById("review-yml-result");
+    container.innerHTML = "<p class=\"muted\">読み込み中…</p>";
+    fetch("/api/review-yml?owner=" + encodeURIComponent(owner) + "&repo=" + encodeURIComponent(repo))
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        if (!result.ok) {
+          container.innerHTML = '<p class="error-text">' + escapeHtml(result.data.error || "取得に失敗しました") + "</p>";
+          return;
+        }
+        renderReviewYml(result.data);
+      })
+      .catch(function (e) {
+        container.innerHTML = '<p class="error-text">サーバーに接続できません: ' + escapeHtml(e.message) + "</p>";
+      });
+  }
+
+  function renderReviewYml(data) {
+    var container = document.getElementById("review-yml-result");
+    if (!data.found) {
+      container.innerHTML = '<p class="muted">.review.yml が見つかりません(デフォルト観点で動作します)</p>';
+      return;
+    }
+    var html = "<h3>.review.yml</h3><pre class=\"yaml-block\">" + escapeHtml(data.raw) + "</pre>";
+    if (data.reviewContextFiles && data.reviewContextFiles.length > 0) {
+      html += "<h3>.review/ コンテキストファイル</h3>";
+      data.reviewContextFiles.forEach(function (f) {
+        var usedBy = (f.usedBy || []).join(", ");
+        if (f.found) {
+          html += '<details class="context-file"><summary>' + escapeHtml(f.path) +
+            ' <span class="used-by">(' + escapeHtml(usedBy) + ')</span></summary><pre>' +
+            escapeHtml(f.content) + "</pre></details>";
+        } else {
+          html += '<div class="context-file missing">' + escapeHtml(f.path) +
+            ' <span class="used-by">(' + escapeHtml(usedBy) + ')</span> &mdash; 見つかりませんでした</div>';
+        }
+      });
+    }
+    container.innerHTML = html;
+  }
+
+  /* ---------- 初期化 ---------- */
+  fetch("/api/config")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      state.config = data;
+      renderRepositories();
+      populateSimpleFields();
+      attachFieldListeners();
+      scheduleModelRefresh("llm");
+      scheduleModelRefresh("rag");
+    })
+    .catch(function (e) {
+      document.getElementById("global-error").hidden = false;
+      document.getElementById("global-error").textContent = "設定の読み込みに失敗しました: " + e.message;
+    });
+})();
+</script>
+</body>
+</html>

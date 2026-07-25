@@ -3,6 +3,7 @@ package io.github.takahino.llmreviewer.gitbucket;
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
+import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -93,6 +94,22 @@ class GitBucketClientTest {
         clientFor(server.getAddress().getPort()).postIssueComment("owner", "repo", 5, "new comment");
 
         assertEquals("POST", receivedMethod.get());
+    }
+
+    @Test
+    void getRepositoryParsesDefaultBranch() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v3/repos/owner/repo", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            respond(exchange, 200, "{\"name\":\"repo\",\"full_name\":\"owner/repo\",\"default_branch\":\"main\"}");
+        });
+        server.start();
+
+        RepositoryDetail detail = clientFor(server.getAddress().getPort()).getRepository("owner", "repo");
+
+        assertEquals("repo", detail.name());
+        assertEquals("owner/repo", detail.fullName());
+        assertEquals("main", detail.defaultBranch());
     }
 
     @Test

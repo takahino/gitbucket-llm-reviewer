@@ -141,18 +141,23 @@ public class RepositoryMirror implements AutoCloseable {
         }
     }
 
+    /**
+     * fetch()未実行(ミラー未作成)の状態でも呼ばれ得る(例: 管理UIからのreview.yml表示はPRのdiff取得を経由しない)。
+     * その場合はopen()でミラーを開くのみでリモートの内容は取得しない(treeIdが解決できずOptional.empty()を返す)。
+     */
     public Optional<String> readFile(String ref, String path) {
         try {
-            ObjectId treeId = repository.resolve(ref + "^{tree}");
+            Repository repo = open();
+            ObjectId treeId = repo.resolve(ref + "^{tree}");
             if (treeId == null) {
                 return Optional.empty();
             }
-            try (TreeWalk treeWalk = TreeWalk.forPath(repository, path, treeId)) {
+            try (TreeWalk treeWalk = TreeWalk.forPath(repo, path, treeId)) {
                 if (treeWalk == null) {
                     return Optional.empty();
                 }
                 ObjectId blobId = treeWalk.getObjectId(0);
-                try (ObjectReader reader = repository.newObjectReader()) {
+                try (ObjectReader reader = repo.newObjectReader()) {
                     // レビュー対象コードはUTF-8とは限らない(Shift_JIS等)ため文字コードを自動判定する
                     return Optional.of(CharsetDetector.decode(reader.open(blobId).getBytes()));
                 }
@@ -162,14 +167,16 @@ public class RepositoryMirror implements AutoCloseable {
         }
     }
 
+    /** readFile と同様、fetch()未実行でも呼ばれ得るためopen()でミラーを開く。 */
     public List<String> listFiles(String ref, int maxFiles) {
         try {
-            ObjectId treeId = repository.resolve(ref + "^{tree}");
+            Repository repo = open();
+            ObjectId treeId = repo.resolve(ref + "^{tree}");
             if (treeId == null) {
                 return List.of();
             }
             List<String> paths = new ArrayList<>();
-            try (TreeWalk treeWalk = new TreeWalk(repository)) {
+            try (TreeWalk treeWalk = new TreeWalk(repo)) {
                 treeWalk.addTree(treeId);
                 treeWalk.setRecursive(true);
                 while (treeWalk.next() && paths.size() < maxFiles) {

@@ -152,8 +152,20 @@ Flags:
 | `--config <path>` | Path to `config.yml` (default: `./config.yml`) |
 | `--once` | Scan once and exit, instead of polling forever |
 | `--dry-run` | Log the generated review comment instead of posting it to GitBucket |
+| `--ui` | Start the config.yml/review.yml admin web UI instead of polling (mutually exclusive with `--once`/`--dry-run`) |
+| `--ui-port <port>` | Port for `--ui` mode (default: `8765`) |
 
 Without `--once`, the process keeps running and polls every `polling.intervalSeconds`. It stops gracefully on SIGTERM (waits for the in-flight scan to finish, then releases JGit repository handles).
+
+### Admin UI (`--ui`)
+
+```bash
+java -jar target/gitbucket-llm-reviewer.jar --config config.yml --ui --ui-port 8765
+```
+
+Open `http://127.0.0.1:8765/` to edit `config.yml` from a browser (auto-saves on change, with validation) and to view the live `.review.yml` (and its referenced `.review/` context files) for any repository listed in `config.yml`. The server only binds to `127.0.0.1` — do not port-forward or reverse-proxy it, since `config.yml` contains secrets (GitBucket token, LLM API key, etc.) that are returned as-is to populate the edit form.
+
+Because `AppConfig` is loaded once at process startup and injected into the polling components, edits saved in the UI are **not** picked up by an already-running polling process — restart the normal (non-`--ui`) process to apply them. Saving from the UI also rewrites `config.yml` without hand-written comments (a one-time `config.yml.bak` backup of your original file is created on first save); see `config.example.yml` for field documentation.
 
 ## How it works
 

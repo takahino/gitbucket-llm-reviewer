@@ -4,13 +4,11 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
-import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
-import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.llm.LlmClient;
@@ -36,7 +34,6 @@ public class ReviewOrchestrator implements AutoCloseable {
     private static final Logger LOGGER = Logger.getLogger(ReviewOrchestrator.class.getName());
     private static final int MAX_FAILURES = 3;
 
-    private final GitBucketClient gitBucketClient;
     private final JGitDiffProvider jGitProvider;
     private final ApiDiffProvider apiFallbackProvider;
     private final LlmClient llmClient;
@@ -45,6 +42,8 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final String llmModelName;
     private final CommentPublisher commentPublisher;
     private final RagContextResolver ragContextResolver;
+    private final RepoReviewConfigFetcher repoReviewConfigFetcher;
+    private final boolean dryRun;
 
     public ReviewOrchestrator(
             GitBucketClient gitBucketClient,
@@ -55,9 +54,9 @@ public class ReviewOrchestrator implements AutoCloseable {
             AppConfig.ReviewConfig reviewConfig,
             String llmModelName,
             boolean dryRun,
-            RagContextResolver ragContextResolver
+            RagContextResolver ragContextResolver,
+            RepoReviewConfigFetcher repoReviewConfigFetcher
     ) {
-        this.gitBucketClient = gitBucketClient;
         this.jGitProvider = jGitProvider;
         this.apiFallbackProvider = apiFallbackProvider;
         this.llmClient = llmClient;
@@ -66,8 +65,15 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.llmModelName = llmModelName;
         this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
         this.ragContextResolver = ragContextResolver;
+        this.repoReviewConfigFetcher = repoReviewConfigFetcher;
+        this.dryRun = dryRun;
     }
 
+    /**
+     * dry-run時はコメント投稿だけでなくレビュー状態の記録もスキップする。
+     * 記録してしまうと、dry-runで確認したPRをそのまま本番実行しても
+     * 「レビュー済み」扱いとなり実際のコメント投稿が行われなくなるため。
+     */
     public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
         String key = ReviewStateStore.key(repoRef.owner(), repoRef.name(), pr.number());
         if (!stateStore.needsReview(key, pr.head().sha())) {
@@ -76,11 +82,17 @@ public class ReviewOrchestrator implements AutoCloseable {
         LOGGER.info("レビュー対象PRを検出しました: %s (head=%s)".formatted(key, pr.head().sha()));
         try {
             doReview(repoRef, pr);
-            stateStore.markReviewed(key, pr.head().sha());
-            LOGGER.info("レビューを完了しました: " + key);
+            if (dryRun) {
+                LOGGER.info("レビューを完了しました(dry-runのためレビュー状態は記録しません): " + key);
+            } else {
+                stateStore.markReviewed(key, pr.head().sha());
+                LOGGER.info("レビューを完了しました: " + key);
+            }
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "PRレビューに失敗しました: " + key, e);
-            stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
+            if (!dryRun) {
+                stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
+            }
         }
     }
 
@@ -89,7 +101,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         String repoName = repoRef.name();
         String key = ReviewStateStore.key(owner, repoName, pr.number());
 
-        RepoReviewConfig repoConfig = loadRepoReviewConfig(owner, repoName, pr.base().ref());
+        RepoReviewConfig repoConfig = repoReviewConfigFetcher.fetchParsed(owner, repoName, pr.base().ref());
         DiffOutcome diffOutcome = getDiffForReview(owner, repoName, pr, repoConfig.exclude(), stateStore.get(key));
         DiffResult diff = diffOutcome.diff();
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(diff.diffText());
@@ -172,28 +184,6 @@ public class ReviewOrchestrator implements AutoCloseable {
         }
     }
 
-    private RepoReviewConfig loadRepoReviewConfig(String owner, String repoName, String baseRef) {
-        Optional<String> content;
-        try {
-            content = gitBucketClient.getRawContent(owner, repoName, ".review.yml", baseRef);
-        } catch (GitBucketApiException e) {
-            LOGGER.log(Level.WARNING,
-                    ".review.yml のAPI取得に失敗、JGitでの読み込みにフォールバックします: %s/%s".formatted(owner, repoName), e);
-            content = readReviewYmlViaJGit(owner, repoName, baseRef);
-        }
-        return RepoReviewConfigLoader.parse(content.orElse(null));
-    }
-
-    private Optional<String> readReviewYmlViaJGit(String owner, String repoName, String baseRef) {
-        try {
-            return jGitProvider.readFile(owner, repoName, baseRef, ".review.yml");
-        } catch (GitMirrorException e) {
-            LOGGER.log(Level.WARNING,
-                    ".review.yml のJGit読み込みにも失敗、デフォルト観点を使用します: %s/%s".formatted(owner, repoName), e);
-            return Optional.empty();
-        }
-    }
-
     /** diffOutcome.incrementalPreviousHeadSha() が非nullなら増分レビュー、nullならPR全体レビュー。 */
     private record DiffOutcome(DiffResult diff, String incrementalPreviousHeadSha) {
     }
@@ -253,19 +243,7 @@ public class ReviewOrchestrator implements AutoCloseable {
     private Map<String, String> loadContextFiles(String owner, String repoName, String headSha, List<String> contextFilePaths) {
         Map<String, String> result = new LinkedHashMap<>();
         for (String path : contextFilePaths) {
-            Optional<String> content = Optional.empty();
-            try {
-                content = jGitProvider.readFile(owner, repoName, headSha, path);
-            } catch (GitMirrorException ignored) {
-                // API フォールバックへ
-            }
-            if (content.isEmpty()) {
-                try {
-                    content = gitBucketClient.getRawContent(owner, repoName, path, headSha);
-                } catch (GitBucketApiException ignored) {
-                    content = Optional.empty();
-                }
-            }
+            Optional<String> content = repoReviewConfigFetcher.fetchFile(owner, repoName, headSha, path);
             if (content.isPresent()) {
                 result.put(path, content.get());
             } else {

@@ -8,6 +8,7 @@ import io.github.takahino.llmreviewer.gitbucket.model.CommitDetail;
 import io.github.takahino.llmreviewer.gitbucket.model.CommitRef;
 import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
+import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
 import io.github.takahino.llmreviewer.util.CharsetDetector;
 
 import java.io.IOException;
@@ -68,6 +69,13 @@ public class GitBucketClient {
         URI uri = apiUri("/repos/%s/%s/commits/%s".formatted(owner, repo, sha), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
         return parse(body, CommitDetail.class);
+    }
+
+    /** リポジトリ情報(デフォルトブランチ等)を取得する。PRに紐づかない文脈(管理UI等)でのブランチ解決に使う。 */
+    public RepositoryDetail getRepository(String owner, String repo) {
+        URI uri = apiUri("/repos/%s/%s".formatted(owner, repo), Map.of());
+        String body = sendJsonRequest(newRequestBuilder(uri).GET());
+        return parse(body, RepositoryDetail.class);
     }
 
     /** 指定 ref のファイルの生の中身を取得する。存在しない場合は空を返す。 */

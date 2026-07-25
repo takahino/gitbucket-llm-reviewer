@@ -1,6 +1,7 @@
 target/
 data/
 config.yml
+config.yml.bak
 dependency-reduced-pom.xml
 *.log
 .idea/
