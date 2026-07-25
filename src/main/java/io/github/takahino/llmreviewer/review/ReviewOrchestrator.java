@@ -4,6 +4,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
+import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.DiffResult;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
@@ -92,7 +93,12 @@ public class ReviewOrchestrator implements AutoCloseable {
         String repoName = repoRef.name();
         String key = ReviewStateStore.key(owner, repoName, pr.number());
 
-        RepoReviewConfig repoConfig = repoReviewConfigFetcher.fetchParsed(owner, repoName, pr.base().ref());
+        RepoReviewConfigLoader.ParseResult parseResult = repoReviewConfigFetcher.fetchParsed(owner, repoName, pr.base().ref());
+        if (!parseResult.warnings().isEmpty()) {
+            LOGGER.warning(".review.yml に問題があります (%s): %s"
+                    .formatted(key, String.join(" / ", parseResult.warnings())));
+        }
+        RepoReviewConfig repoConfig = parseResult.config();
         DiffOutcome diffOutcome = getDiffForReview(owner, repoName, pr, repoConfig.exclude(), stateStore.get(key));
         DiffResult diff = diffOutcome.diff();
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(diff.diffText());

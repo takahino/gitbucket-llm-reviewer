@@ -172,6 +172,11 @@
   }
   .muted { color: var(--ink-faint); }
   .error-text { color: var(--red); }
+  .review-yml-warning {
+    border: 1px solid var(--amber); background: var(--amber-soft); color: var(--amber);
+    border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; font-size: 0.85rem;
+  }
+  .review-yml-warning ul { margin: 6px 0 0; padding-left: 18px; }
 </style>
 </head>
 <body>
@@ -742,7 +747,13 @@
       container.innerHTML = '<p class="muted">.review.yml が見つかりません(デフォルト観点で動作します)</p>';
       return;
     }
-    var html = "<h3>.review.yml</h3><pre class=\"yaml-block\">" + escapeHtml(data.raw) + "</pre>";
+    var html = "";
+    if (data.warnings && data.warnings.length > 0) {
+      html += '<div class="review-yml-warning"><strong>.review.yml に問題があります:</strong><ul>' +
+        data.warnings.map(function (w) { return "<li>" + escapeHtml(w) + "</li>"; }).join("") +
+        "</ul></div>";
+    }
+    html += "<h3>.review.yml</h3><pre class=\"yaml-block\">" + escapeHtml(data.raw) + "</pre>";
     if (data.reviewContextFiles && data.reviewContextFiles.length > 0) {
       html += "<h3>.review/ コンテキストファイル</h3>";
       data.reviewContextFiles.forEach(function (f) {
