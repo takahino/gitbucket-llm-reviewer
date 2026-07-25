@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 /**
  * .review.yml の perspectives リストをパースするデシリアライザ。
@@ -18,7 +17,7 @@ import java.util.Set;
  */
 public class PerspectiveEntryListDeserializer extends JsonDeserializer<List<RepoReviewConfig.PerspectiveEntry>> {
 
-    private static final Set<String> KNOWN_KEYS = Set.of("perspective", "context");
+    private static final List<String> KNOWN_KEYS = List.of("perspective", "context");
 
     @Override
     public List<RepoReviewConfig.PerspectiveEntry> deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
@@ -46,14 +45,14 @@ public class PerspectiveEntryListDeserializer extends JsonDeserializer<List<Repo
     /**
      * カスタムデシリアライザ内でJsonNodeを手動で読んでいるため、通常のプロパティバインディングを経由する
      * {@code DeserializationProblemHandler}(RepoReviewConfigLoader側)では未知キーを検知できない。
-     * ここで perspective/context 以外のキーを個別にチェックし、同じ警告リストへ追記する。
+     * ここで perspective/context 以外のキーを個別にチェックし、同じ警告収集ロジック({@link RepoReviewConfigLoader#warnUnknownKey})
+     * へ委譲する。
      */
     private void warnOnUnknownKeys(JsonNode node, DeserializationContext ctxt) {
         for (Iterator<String> names = node.fieldNames(); names.hasNext(); ) {
             String name = names.next();
             if (!KNOWN_KEYS.contains(name)) {
-                RepoReviewConfigLoader.addWarning(ctxt,
-                        "perspectives のエントリに未知のキー '%s' があります(有効なキー: perspective, context)".formatted(name));
+                RepoReviewConfigLoader.warnUnknownKey(ctxt, "perspectives のエントリ", name, KNOWN_KEYS);
             }
         }
     }

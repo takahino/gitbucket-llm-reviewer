@@ -6,13 +6,12 @@ import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.deser.BeanDeserializerBase;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.IOException;
-import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
@@ -66,8 +65,8 @@ public final class RepoReviewConfigLoader {
 
     /**
      * トップレベル/{@code paths.<glob>} 配下の未知キー(typo等)を、例外にせず警告として収集するハンドラ。
-     * {@code RepoReviewConfig}/{@code PathConfig} はどちらも record なので、既知キー一覧は
-     * {@link Class#getRecordComponents()} から動的に取得しスキーマと自動的に同期させる。
+     * 既知キー一覧は自前でreflectionするのではなく、Jacksonが解決済みの {@code deserializer} 側の
+     * プロパティ一覧({@link BeanDeserializerBase#properties()})をそのまま使う。
      */
     private static final class UnknownKeyProblemHandler extends DeserializationProblemHandler {
         @Override
@@ -75,11 +74,7 @@ public final class RepoReviewConfigLoader {
                 DeserializationContext ctxt, JsonParser p, JsonDeserializer<?> deserializer,
                 Object beanOrClass, String propertyName) throws IOException {
             Class<?> type = beanOrClass instanceof Class<?> c ? c : beanOrClass.getClass();
-            String suggestion = closestMatch(propertyName, knownKeysFor(type))
-                    .map(match -> "(もしかして: " + match + " ?)")
-                    .orElse("");
-            addWarning(ctxt, "%s に未知のキー '%s' があります(無視されます)%s"
-                    .formatted(describeLocation(type), propertyName, suggestion));
+            warnUnknownKey(ctxt, describeLocation(type), propertyName, knownKeysOf(deserializer));
             p.skipChildren();
             return true;
         }
@@ -95,16 +90,31 @@ public final class RepoReviewConfigLoader {
         return type.getSimpleName();
     }
 
-    private static List<String> knownKeysFor(Class<?> type) {
-        if (!type.isRecord()) {
+    private static List<String> knownKeysOf(JsonDeserializer<?> deserializer) {
+        if (!(deserializer instanceof BeanDeserializerBase beanDeserializer)) {
             return List.of();
         }
-        return Arrays.stream(type.getRecordComponents()).map(RecordComponent::getName).toList();
+        List<String> keys = new ArrayList<>();
+        beanDeserializer.properties().forEachRemaining(property -> keys.add(property.getName()));
+        return keys;
+    }
+
+    /**
+     * 未知キーの警告を組み立てて {@code ctxt} の警告リストへ追記する。トップレベル/{@code paths} 配下の
+     * 標準デシリアライズ経路(このクラス)と、{@link PerspectiveEntryListDeserializer} のような
+     * カスタムデシリアライザの両方から同じ文言・候補提示ロジックを使うための共通口。
+     */
+    static void warnUnknownKey(DeserializationContext ctxt, String location, String propertyName, List<String> knownKeys) {
+        String suggestion = closestMatch(propertyName, knownKeys)
+                .map(match -> "(もしかして: " + match + " ?)")
+                .orElse("");
+        addWarning(ctxt, "%s に未知のキー '%s' があります(無視されます)%s"
+                .formatted(location, propertyName, suggestion));
     }
 
     /** {@code ctxt} の警告リストへ追記する。呼び出し元は {@link #WARNINGS_ATTRIBUTE} でリストを渡しておく必要がある。 */
     @SuppressWarnings("unchecked")
-    static void addWarning(DeserializationContext ctxt, String message) {
+    private static void addWarning(DeserializationContext ctxt, String message) {
         Object attribute = ctxt.getAttribute(WARNINGS_ATTRIBUTE);
         if (attribute instanceof List<?> list) {
             ((List<String>) list).add(message);
