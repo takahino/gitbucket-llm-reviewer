@@ -58,7 +58,7 @@ public final class Main {
         JGitDiffProvider jGitProvider = new JGitDiffProvider(Path.of(config.workDir()), config.gitbucket());
         ApiDiffProvider apiFallbackProvider = new ApiDiffProvider(gitBucketClient);
         LlmClient llmClient = new LlmClient(config.llm());
-        ReviewStateStore stateStore = new ReviewStateStore(Path.of(config.state().filePath()));
+        ReviewStateStore stateStore = new ReviewStateStore(Path.of(config.state().filePath()), arguments.dryRun());
         RagContextResolver ragContextResolver = createRagContextResolver(config.rag(), jGitProvider);
         RepoReviewConfigFetcher repoReviewConfigFetcher = new RepoReviewConfigFetcher(gitBucketClient, jGitProvider);
 

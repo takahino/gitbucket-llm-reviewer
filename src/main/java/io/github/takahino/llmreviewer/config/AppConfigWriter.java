@@ -7,7 +7,6 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -24,14 +23,20 @@ public final class AppConfigWriter {
     private AppConfigWriter() {
     }
 
-    /** config.yml を原子的に置き換える。同時呼び出しからの書き込み競合を避けるためプロセス内で直列化する。 */
+    /**
+     * config.yml を原子的に置き換える。同時呼び出しからの書き込み競合を避けるためプロセス内で直列化する。
+     * tmpファイル書き込み+ATOMIC_MOVEという手順は {@link io.github.takahino.llmreviewer.review.ReviewStateStore}・
+     * {@link io.github.takahino.llmreviewer.rag.RagIndexStateStore} と同じ確立済みの慣習に合わせている。
+     */
     public static synchronized void write(Path configPath, AppConfig config) {
         try {
             backupIfNeeded(configPath);
             String yaml = HEADER_COMMENT + YAML_MAPPER.writeValueAsString(config);
-            Path tmp = configPath.resolveSibling(configPath.getFileName().toString() + ".tmp");
+            Path parent = configPath.toAbsolutePath().getParent();
+            Files.createDirectories(parent);
+            Path tmp = Files.createTempFile(parent, "config", ".tmp");
             Files.writeString(tmp, yaml, StandardCharsets.UTF_8);
-            moveAtomically(tmp, configPath);
+            Files.move(tmp, configPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             throw new UncheckedIOException("config.yml の書き込みに失敗しました: " + configPath, e);
         }
@@ -42,14 +47,6 @@ public final class AppConfigWriter {
         Path backup = configPath.resolveSibling(configPath.getFileName().toString() + ".bak");
         if (Files.isRegularFile(configPath) && !Files.exists(backup)) {
             Files.copy(configPath, backup);
-        }
-    }
-
-    private static void moveAtomically(Path tmp, Path target) throws IOException {
-        try {
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }

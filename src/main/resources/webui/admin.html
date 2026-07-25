@@ -615,28 +615,26 @@
     if (target === "llm") {
       var baseUrl = getByPath(state.config, "llm.baseUrl");
       if (!baseUrl) { return; }
-      fetch("/api/llm/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl: baseUrl, apiKey: getByPath(state.config, "llm.apiKey") })
-      }).then(function (res) { return res.json(); })
-        .then(function (data) { applyModelOptions("llm.model", data); })
-        .catch(function (e) { applyModelOptions("llm.model", { ok: false, error: e.message }); });
+      fetchModelOptions("/api/llm/models", { baseUrl: baseUrl, apiKey: getByPath(state.config, "llm.apiKey") }, "llm.model");
     } else {
       var embeddingBaseUrl = getByPath(state.config, "rag.embeddingBaseUrl");
       if (!embeddingBaseUrl) { return; }
-      fetch("/api/embedding/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          baseUrl: embeddingBaseUrl,
-          provider: getByPath(state.config, "rag.embeddingProvider"),
-          apiKey: getByPath(state.config, "rag.embeddingApiKey")
-        })
-      }).then(function (res) { return res.json(); })
-        .then(function (data) { applyModelOptions("rag.embeddingModel", data); })
-        .catch(function (e) { applyModelOptions("rag.embeddingModel", { ok: false, error: e.message }); });
+      fetchModelOptions("/api/embedding/models", {
+        baseUrl: embeddingBaseUrl,
+        provider: getByPath(state.config, "rag.embeddingProvider"),
+        apiKey: getByPath(state.config, "rag.embeddingApiKey")
+      }, "rag.embeddingModel");
     }
+  }
+
+  function fetchModelOptions(url, body, path) {
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) { return res.json(); })
+      .then(function (data) { applyModelOptions(path, data); })
+      .catch(function (e) { applyModelOptions(path, { ok: false, error: e.message }); });
   }
 
   function applyModelOptions(path, result) {

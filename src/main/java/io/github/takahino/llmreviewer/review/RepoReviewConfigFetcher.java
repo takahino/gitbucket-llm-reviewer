@@ -46,7 +46,12 @@ public class RepoReviewConfigFetcher {
     }
 
     public RepoReviewConfig fetchParsed(String owner, String repoName, String ref) {
-        return RepoReviewConfigLoader.parse(fetchRaw(owner, repoName, ref).orElse(null));
+        return parseRaw(fetchRaw(owner, repoName, ref));
+    }
+
+    /** 既に取得済みの生YAML文字列をパースする(呼び出し側がrawとparsedの両方を必要とする場合の再フェッチ防止用)。 */
+    public RepoReviewConfig parseRaw(Optional<String> raw) {
+        return RepoReviewConfigLoader.parse(raw.orElse(null));
     }
 
     /**

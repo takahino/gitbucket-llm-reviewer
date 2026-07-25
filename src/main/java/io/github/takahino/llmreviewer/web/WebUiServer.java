@@ -40,8 +40,13 @@ public final class WebUiServer {
         server.createContext("/", new StaticAssetHandler());
         server.createContext("/api/config", new ConfigApiHandler(configPath, currentConfig, port));
         server.createContext("/api/review-yml", new ReviewYmlApiHandler(gitBucketClient, repoReviewConfigFetcher));
-        server.createContext("/api/llm/models", new LlmModelsApiHandler(modelListClient, port));
-        server.createContext("/api/embedding/models", new EmbeddingModelsApiHandler(modelListClient, port));
+        // llm.baseUrlは常にOpenAI互換だが、rag.embeddingBaseUrlはprovider(ollama/openai-compatible)で取得方法が変わる
+        server.createContext("/api/llm/models", new ModelListApiHandler(modelListClient, port,
+                (client, body) -> client.listOpenAiCompatible(body.baseUrl(), body.apiKey())));
+        server.createContext("/api/embedding/models", new ModelListApiHandler(modelListClient, port,
+                (client, body) -> "openai-compatible".equals(body.provider())
+                        ? client.listOpenAiCompatible(body.baseUrl(), body.apiKey())
+                        : client.listOllama(body.baseUrl())));
     }
 
     public void start() {

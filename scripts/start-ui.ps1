@@ -21,17 +21,10 @@ param(
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_common.ps1"
 
-$projectRoot = Get-ProjectRoot
-if (-not $ConfigPath) {
-    $ConfigPath = Join-Path $projectRoot "config.yml"
-}
+$ConfigPath = Resolve-ConfigPath -ConfigPath $ConfigPath
 $jarPath = Get-ReviewerJarPath
 Assert-ConfigExists -ConfigPath $ConfigPath
 
-Push-Location $projectRoot
-try {
-    Write-Host "管理UIを起動します: http://127.0.0.1:$Port/ (Ctrl+Cで終了)"
-    & java -jar $jarPath --config $ConfigPath --ui --ui-port $Port
-} finally {
-    Pop-Location
-}
+Invoke-ReviewerJar `
+    -JarArgs @("-jar", $jarPath, "--config", $ConfigPath, "--ui", "--ui-port", $Port) `
+    -StartMessage "管理UIを起動します: http://127.0.0.1:$Port/ (Ctrl+Cで終了)"

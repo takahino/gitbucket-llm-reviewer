@@ -21,20 +21,13 @@ param(
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\_common.ps1"
 
-$projectRoot = Get-ProjectRoot
-if (-not $ConfigPath) {
-    $ConfigPath = Join-Path $projectRoot "config.yml"
-}
+$ConfigPath = Resolve-ConfigPath -ConfigPath $ConfigPath
 $jarPath = Get-ReviewerJarPath
 Assert-ConfigExists -ConfigPath $ConfigPath
 
 $jarArgs = @("-jar", $jarPath, "--config", $ConfigPath)
 if ($DryRun) { $jarArgs += "--dry-run" }
 
-Push-Location $projectRoot
-try {
-    Write-Host "ポーリングモードで起動します(config=$ConfigPath, dryRun=$($DryRun.IsPresent))。停止するにはCtrl+C。"
-    & java @jarArgs
-} finally {
-    Pop-Location
-}
+Invoke-ReviewerJar `
+    -JarArgs $jarArgs `
+    -StartMessage "ポーリングモードで起動します(config=$ConfigPath, dryRun=$($DryRun.IsPresent))。停止するにはCtrl+C。"

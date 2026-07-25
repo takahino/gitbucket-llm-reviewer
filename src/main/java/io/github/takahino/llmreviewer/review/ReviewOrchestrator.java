@@ -43,7 +43,6 @@ public class ReviewOrchestrator implements AutoCloseable {
     private final CommentPublisher commentPublisher;
     private final RagContextResolver ragContextResolver;
     private final RepoReviewConfigFetcher repoReviewConfigFetcher;
-    private final boolean dryRun;
 
     public ReviewOrchestrator(
             GitBucketClient gitBucketClient,
@@ -66,13 +65,11 @@ public class ReviewOrchestrator implements AutoCloseable {
         this.commentPublisher = new CommentPublisher(gitBucketClient, dryRun);
         this.ragContextResolver = ragContextResolver;
         this.repoReviewConfigFetcher = repoReviewConfigFetcher;
-        this.dryRun = dryRun;
     }
 
     /**
-     * dry-run時はコメント投稿だけでなくレビュー状態の記録もスキップする。
-     * 記録してしまうと、dry-runで確認したPRをそのまま本番実行しても
-     * 「レビュー済み」扱いとなり実際のコメント投稿が行われなくなるため。
+     * dry-run時のレビュー状態記録抑止は {@link ReviewStateStore} 自身が担う(CommentPublisherと同様、
+     * dry-run可否はその副作用を持つ collaborator が自己判断する形に揃えている)。
      */
     public void reviewIfNeeded(AppConfig.RepositoryRef repoRef, PullRequestInfo pr) {
         String key = ReviewStateStore.key(repoRef.owner(), repoRef.name(), pr.number());
@@ -82,17 +79,11 @@ public class ReviewOrchestrator implements AutoCloseable {
         LOGGER.info("レビュー対象PRを検出しました: %s (head=%s)".formatted(key, pr.head().sha()));
         try {
             doReview(repoRef, pr);
-            if (dryRun) {
-                LOGGER.info("レビューを完了しました(dry-runのためレビュー状態は記録しません): " + key);
-            } else {
-                stateStore.markReviewed(key, pr.head().sha());
-                LOGGER.info("レビューを完了しました: " + key);
-            }
+            stateStore.markReviewed(key, pr.head().sha());
+            LOGGER.info("レビューを完了しました: " + key);
         } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "PRレビューに失敗しました: " + key, e);
-            if (!dryRun) {
-                stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
-            }
+            stateStore.markFailed(key, pr.head().sha(), MAX_FAILURES);
         }
     }
 

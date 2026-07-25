@@ -8,20 +8,29 @@ import io.github.takahino.llmreviewer.llm.ModelListClient;
 import java.io.IOException;
 
 /**
- * POST /api/embedding/models — rag.embeddingModel用の補助エンドポイント。
- * providerがollamaかopenai-compatibleかでモデル一覧取得先のAPI形式が異なるため分岐する。
+ * POST /api/llm/models・POST /api/embedding/models 共通のハンドラ。
+ * config編集画面でbaseUrl入力後に呼ばれ、接続先からモデル一覧を取得できればプルダウン化するための補助エンドポイント。
+ * apiKeyをログ・URLに残さないようPOSTにしている。取得方法(OpenAI互換固定/provider分岐)は呼び出し側で指定する。
  */
-final class EmbeddingModelsApiHandler implements HttpHandler {
+final class ModelListApiHandler implements HttpHandler {
 
-    private final ModelListClient modelListClient;
-    private final int port;
-
-    EmbeddingModelsApiHandler(ModelListClient modelListClient, int port) {
-        this.modelListClient = modelListClient;
-        this.port = port;
+    /** llm.model用はOpenAI互換固定、rag.embeddingModel用はprovider(ollama/openai-compatible)で分岐する。 */
+    @FunctionalInterface
+    interface ModelResolver {
+        ModelListClient.Result resolve(ModelListClient client, RequestBody body);
     }
 
     record RequestBody(String baseUrl, String provider, String apiKey) {
+    }
+
+    private final ModelListClient modelListClient;
+    private final ModelResolver resolver;
+    private final int port;
+
+    ModelListApiHandler(ModelListClient modelListClient, int port, ModelResolver resolver) {
+        this.modelListClient = modelListClient;
+        this.port = port;
+        this.resolver = resolver;
     }
 
     @Override
@@ -46,10 +55,7 @@ final class EmbeddingModelsApiHandler implements HttpHandler {
                 JsonHttp.sendError(exchange, 400, "baseUrl は必須です");
                 return;
             }
-            ModelListClient.Result result = "openai-compatible".equals(body.provider())
-                    ? modelListClient.listOpenAiCompatible(body.baseUrl(), body.apiKey())
-                    : modelListClient.listOllama(body.baseUrl());
-            JsonHttp.writeJson(exchange, 200, result);
+            JsonHttp.writeJson(exchange, 200, resolver.resolve(modelListClient, body));
         } finally {
             exchange.close();
         }

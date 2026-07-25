@@ -67,7 +67,7 @@ final class ReviewYmlApiHandler implements HttpHandler {
         }
 
         Optional<String> raw = repoReviewConfigFetcher.fetchRaw(owner, repo, defaultBranch);
-        RepoReviewConfig parsed = repoReviewConfigFetcher.fetchParsed(owner, repo, defaultBranch);
+        RepoReviewConfig parsed = repoReviewConfigFetcher.parseRaw(raw);
         List<ContextFileView> contextFiles = resolveContextFiles(owner, repo, defaultBranch, parsed);
 
         JsonHttp.writeJson(exchange, 200, new ReviewYmlView(raw.isPresent(), raw.orElse(null), parsed, contextFiles));

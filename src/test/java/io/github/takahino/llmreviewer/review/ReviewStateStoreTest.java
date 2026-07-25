@@ -52,6 +52,18 @@ class ReviewStateStoreTest {
     }
 
     @Test
+    void dryRunSkipsMarkReviewedAndMarkFailed() {
+        ReviewStateStore store = new ReviewStateStore(tempDir.resolve("state.json"), true);
+        String key = ReviewStateStore.key("owner", "repo", 4);
+
+        store.markReviewed(key, "sha-1");
+        assertTrue(store.get(key).isEmpty(), "dry-run時はmarkReviewedで状態を記録しない");
+
+        store.markFailed(key, "sha-1", 3);
+        assertTrue(store.get(key).isEmpty(), "dry-run時はmarkFailedで状態を記録しない");
+    }
+
+    @Test
     void statePersistsAcrossInstances() {
         Path file = tempDir.resolve("state.json");
         String key = ReviewStateStore.key("owner", "repo", 3);

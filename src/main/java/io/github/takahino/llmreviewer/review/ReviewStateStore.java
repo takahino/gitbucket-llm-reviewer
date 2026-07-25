@@ -25,10 +25,17 @@ public class ReviewStateStore {
 
     private final Path filePath;
     private final Map<String, StateEntry> state;
+    private final boolean dryRun;
 
     public ReviewStateStore(Path filePath) {
+        this(filePath, false);
+    }
+
+    /** dryRun=trueの場合、markReviewed/markFailedは何も記録しない(dry-runでの確認が本番実行の投稿を妨げないため)。 */
+    public ReviewStateStore(Path filePath, boolean dryRun) {
         this.filePath = filePath;
         this.state = new ConcurrentHashMap<>(load(filePath));
+        this.dryRun = dryRun;
     }
 
     public static String key(String owner, String repo, int prNumber) {
@@ -53,11 +60,17 @@ public class ReviewStateStore {
     }
 
     public synchronized void markReviewed(String key, String headSha) {
+        if (dryRun) {
+            return;
+        }
         state.put(key, new StateEntry(headSha, Instant.now().toString(), "reviewed", 0));
         persist();
     }
 
     public synchronized void markFailed(String key, String headSha, int maxFailures) {
+        if (dryRun) {
+            return;
+        }
         StateEntry previous = state.get(key);
         int failureCount = (previous != null && previous.reviewedHeadSha().equals(headSha)) ? previous.failureCount() + 1 : 1;
         String status = failureCount >= maxFailures ? "skipped" : "failed";

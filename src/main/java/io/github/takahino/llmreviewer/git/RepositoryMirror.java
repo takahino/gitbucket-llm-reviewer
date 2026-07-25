@@ -89,14 +89,17 @@ public class RepositoryMirror implements AutoCloseable {
     }
 
     public String resolveMergeBase(String baseSha, String headSha) {
-        try (RevWalk walk = new RevWalk(repository)) {
-            walk.setRevFilter(RevFilter.MERGE_BASE);
-            RevCommit baseCommit = walk.parseCommit(repository.resolve(baseSha));
-            RevCommit headCommit = walk.parseCommit(repository.resolve(headSha));
-            walk.markStart(baseCommit);
-            walk.markStart(headCommit);
-            RevCommit mergeBase = walk.next();
-            return mergeBase != null ? mergeBase.getName() : baseSha;
+        try {
+            Repository repo = open();
+            try (RevWalk walk = new RevWalk(repo)) {
+                walk.setRevFilter(RevFilter.MERGE_BASE);
+                RevCommit baseCommit = walk.parseCommit(repo.resolve(baseSha));
+                RevCommit headCommit = walk.parseCommit(repo.resolve(headSha));
+                walk.markStart(baseCommit);
+                walk.markStart(headCommit);
+                RevCommit mergeBase = walk.next();
+                return mergeBase != null ? mergeBase.getName() : baseSha;
+            }
         } catch (IOException e) {
             throw new GitMirrorException("merge-base の解決に失敗しました(base=%s, head=%s)".formatted(baseSha, headSha), e);
         }
@@ -104,8 +107,9 @@ public class RepositoryMirror implements AutoCloseable {
 
     public String unifiedDiff(String oldRef, String newRef, List<String> excludeGlobs) {
         try {
-            ObjectId oldTreeId = repository.resolve(oldRef + "^{tree}");
-            ObjectId newTreeId = repository.resolve(newRef + "^{tree}");
+            Repository repo = open();
+            ObjectId oldTreeId = repo.resolve(oldRef + "^{tree}");
+            ObjectId newTreeId = repo.resolve(newRef + "^{tree}");
             if (oldTreeId == null || newTreeId == null) {
                 throw new GitMirrorException("diff対象のtreeが解決できません(old=%s, new=%s)".formatted(oldRef, newRef));
             }
@@ -113,8 +117,8 @@ public class RepositoryMirror implements AutoCloseable {
                     .map(glob -> FileSystems.getDefault().getPathMatcher("glob:" + glob))
                     .toList();
 
-            try (ObjectReader reader = repository.newObjectReader();
-                 Git git = new Git(repository)) {
+            try (ObjectReader reader = repo.newObjectReader();
+                 Git git = new Git(repo)) {
                 CanonicalTreeParser oldTree = new CanonicalTreeParser();
                 oldTree.reset(reader, oldTreeId);
                 CanonicalTreeParser newTree = new CanonicalTreeParser();
@@ -124,7 +128,7 @@ public class RepositoryMirror implements AutoCloseable {
 
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 try (DiffFormatter formatter = new DiffFormatter(out)) {
-                    formatter.setRepository(repository);
+                    formatter.setRepository(repo);
                     for (DiffEntry entry : entries) {
                         String path = "/dev/null".equals(entry.getNewPath()) ? entry.getOldPath() : entry.getNewPath();
                         if (matchers.stream().anyMatch(m -> m.matches(Path.of(path)))) {
