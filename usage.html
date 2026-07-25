@@ -597,16 +597,19 @@ mvn package</pre>
           </div>
         </li>
         <li>
-          <h3>リポジトリ側にレビュー観点を配置する(任意)</h3>
+          <h3>リポジトリ側にレビュー観点を配置する(必須)</h3>
           <div class="step-body">
             <p><code>review.example.yml</code> を参考に、<strong>レビュー対象リポジトリのルート</strong>に
-              <code>.review.yml</code> として配置します。配置しない場合はデフォルトの観点(セキュリティ・命名一貫性・エッジケース)で継続されます。</p>
+              <code>.review.yml</code> として配置します。<strong><code>.review.yml</code> が無い、または解析に失敗した場合は観点が0件となり、
+              そのリポジトリのレビュー自体がスキップされます</strong>(観点を明示的に設定したリポジトリのみがレビュー対象になります)。</p>
             <div class="code-block">
               <span class="label">bash</span>
               <pre><span class="c"># レビュー対象リポジトリ側での作業</span>
 cp review.example.yml .review.yml
 git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             </div>
+            <p>観点ごとにドメイン知識・独自DSL・独自コーディングルールなどの追加コンテキストを渡したい場合は、
+              <code>.review.yml</code> と同階層に <code>.review/</code> フォルダを置きます(詳細は「05 .review.yml リファレンス」)。</p>
           </div>
         </li>
         <li>
@@ -725,7 +728,8 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
     <section id="review-yml-ref">
       <h2><span class="eyebrow">05</span>.review.yml リファレンス</h2>
       <p class="lede">
-        レビュー<strong>対象リポジトリ側</strong>のルートに置く設定です。存在しない、または解析に失敗した場合はデフォルト観点で継続します。
+        レビュー<strong>対象リポジトリ側</strong>のルートに置く設定です。<strong>存在しない、または解析に失敗した場合は観点が0件となり、
+        そのリポジトリのレビュー自体をスキップします</strong>(デフォルト観点にフォールバックすることはありません)。
       </p>
 
       <div class="table-wrap">
@@ -733,8 +737,10 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
           <thead><tr><th>キー</th><th>型</th><th>デフォルト</th><th>説明</th></tr></thead>
           <tbody>
             <tr><td><code>language</code></td><td>string</td><td><code>ja</code></td><td>サマリ・指摘のレビュー言語</td></tr>
-            <tr><td><code>perspectives</code></td><td>string[]</td><td>デフォルト観点3件</td><td>リポジトリ全体に適用する共通観点</td></tr>
-            <tr><td><code>paths.&lt;glob&gt;.perspectives</code></td><td>string[]</td><td><code>[]</code></td><td>指定globにマッチする変更ファイルにのみ追加される観点(モノレポ対応)</td></tr>
+            <tr><td><code>perspectives</code></td><td>(string | object)[]</td><td><code>[]</code>(=レビュー自体をスキップ)</td><td>リポジトリ全体に適用する共通観点。各要素はスカラー文字列、または <code>perspective</code>/<code>context</code> を持つオブジェクトのどちらでもよい</td></tr>
+            <tr><td><code>perspectives[].perspective</code></td><td>string</td><td>—</td><td>オブジェクト形式で書く場合の観点テキスト(スカラー文字列形式の値に相当)</td></tr>
+            <tr><td><code>perspectives[].context</code></td><td>string[]</td><td><code>[]</code></td><td><code>.review/</code> からの相対パス。この観点が適用されるレビュー時、RAG検索を介さず常にそのままLLMへ渡す追加コンテキスト(任意)</td></tr>
+            <tr><td><code>paths.&lt;glob&gt;.perspectives</code></td><td>(string | object)[]</td><td><code>[]</code></td><td>指定globにマッチする変更ファイルにのみ追加される観点(モノレポ対応)。要素の形式は共通の <code>perspectives</code> と同じで、<code>context</code> も同様に使える</td></tr>
             <tr><td><code>paths.&lt;glob&gt;.inherit</code></td><td>boolean</td><td><code>true</code></td><td><code>false</code> にすると、このglobにマッチしたファイルには共通観点・共通<code>knowledgeBase</code>を適用しない</td></tr>
             <tr><td><code>paths.&lt;glob&gt;.knowledgeBase</code></td><td>string[]</td><td><code>[]</code></td><td>このglobにマッチする変更ファイルにのみ追加されるコーディング規約文書パス(モノレポ対応。<code>rag.enabled=true</code>時のみ使用)</td></tr>
             <tr><td><code>exclude</code></td><td>string[]</td><td><code>[]</code></td><td>diffから除外するglob(生成物・minifyファイル等)</td></tr>
@@ -743,6 +749,48 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             <tr><td><code>maxComments</code></td><td>int</td><td><code>10</code></td><td>PRコメントに表示する指摘事項の最大件数。超過分は件数のみ注記</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <h3>観点別の追加コンテキスト(<code>.review/</code> フォルダ)</h3>
+      <p>
+        <code>.review.yml</code> と同階層に <code>.review/</code> フォルダを置き、<code>perspectives</code>
+        (または <code>paths.&lt;glob&gt;.perspectives</code>)の各要素を <code>perspective</code>/<code>context</code>
+        を持つオブジェクト形式で書くと、その観点専用のMarkdownファイルを紐づけられます。
+        ドメイン知識・アーキテクチャ・独自DSL知識・独自コーディングルール・厳守事項などを、カテゴリごとに
+        <code>.review/</code> 配下のサブフォルダへ分類して管理できます。
+      </p>
+      <div class="code-block">
+        <span class="label">.review.yml(抜粋)</span>
+        <pre><span class="k">perspectives</span>:
+  - <span class="s">セキュリティ(インジェクション、認可漏れ)</span>   <span class="c"># 従来通りのスカラー文字列も引き続き使える</span>
+  - <span class="k">perspective</span>: <span class="s">独自DSLのバリデーションルール整合性</span>
+    <span class="k">context</span>:
+      - <span class="s">dsl/spec.md</span>                     <span class="c"># .review/dsl/spec.md を読み込む</span>
+      - <span class="s">must-follow/security-checklist.md</span></pre>
+      </div>
+      <div class="code-block">
+        <span class="label">ディレクトリ構成の例</span>
+        <pre>.review.yml
+.review/
+├── domain-knowledge/
+│   └── payment-flow.md
+├── architecture/
+│   └── overview.md
+├── dsl/
+│   └── spec.md
+├── coding-rules/
+│   └── naming.md
+└── must-follow/
+    └── security-checklist.md</pre>
+      </div>
+      <div class="callout">
+        <span class="eyebrow"><code>knowledgeBase</code> との違い</span>
+        <p>
+          <code>knowledgeBase</code>(RAG)はベクトル類似検索で「関連しそうなチャンク」を拾う仕組みですが、
+          <code>perspectives[].context</code> で指定したファイルは検索を介さず、その観点が適用されるレビューでは
+          <strong>常に全文がそのままLLMへ渡されます</strong>。「この観点をチェックする際は必ずこの内容を踏まえてほしい」
+          という用途に向きます。
+        </p>
       </div>
 
       <h3>モノレポでの観点解決の例</h3>
@@ -1046,6 +1094,16 @@ git add .review.yml &amp;&amp; git commit -m "add review perspectives"</pre>
             GitBucketの構成によっては通らないことがあります。<code>config.yml</code> の
             <code>gitbucket.gitUsername</code> / <code>gitbucket.gitPassword</code> に実際のGitBucketアカウントの
             認証情報を明示的に設定してください。</p>
+        </div>
+      </details>
+      <details class="qa">
+        <summary>PRを検出しているのにレビューされずスキップされる</summary>
+        <div class="a">
+          <p>ログに「適用可能な観点が0件のためレビューをスキップします」と出ていないか確認してください。
+            対象リポジトリの<strong>ベースブランチ</strong>(PRのマージ先)ルートに <code>.review.yml</code> が
+            無い、解析に失敗している、または <code>perspectives</code> が空(モノレポの場合は該当globにもマッチしない)
+            と、このメッセージとともにレビュー自体がスキップされます。<code>.review.yml</code> は
+            <strong>サブフォルダに置いても読み込まれません</strong>。必ずリポジトリルートに配置してください。</p>
         </div>
       </details>
       <details class="qa">
