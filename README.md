@@ -89,6 +89,8 @@ workDir: ./data/repos
 
 Place a `.review.yml` at the root of each reviewed repository (copy from `review.example.yml`). **If it's missing or unparsable, perspectives resolve to zero and the review for that repository is skipped entirely** — only repositories with explicitly configured perspectives get reviewed.
 
+> Want an AI coding agent to draft `.review.yml`/`.review/` for a specific repository? Point it at [docs/agent-review-setup.md](docs/agent-review-setup.md), a self-contained guide it can follow.
+
 ```yaml
 language: ja
 perspectives:                 # perspectives applied to the whole repository

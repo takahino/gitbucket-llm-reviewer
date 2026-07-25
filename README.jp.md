@@ -88,6 +88,8 @@ workDir: ./data/repos
 
 レビュー対象の各リポジトリのルートに `.review.yml` を配置してください(`review.example.yml` をコピー)。**`.review.yml` が存在しない、または解析に失敗した場合は観点が0件となり、そのリポジトリのレビュー自体をスキップします**(観点を明示的に設定したリポジトリのみレビュー対象になります)。
 
+> 特定のリポジトリ用の `.review.yml`/`.review/` をAIコーディングエージェントに作成させたい場合は、単体で完結する手引き [docs/agent-review-setup.jp.md](docs/agent-review-setup.jp.md) を読ませてください。
+
 ```yaml
 language: ja
 perspectives:                 # リポジトリ全体に適用する観点
