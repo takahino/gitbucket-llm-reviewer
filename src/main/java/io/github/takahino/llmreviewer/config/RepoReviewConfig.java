@@ -1,5 +1,7 @@
 package io.github.takahino.llmreviewer.config;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
@@ -16,13 +18,16 @@ import java.util.Set;
  */
 public record RepoReviewConfig(
         String language,
-        List<String> perspectives,
+        @JsonDeserialize(using = PerspectiveEntryListDeserializer.class) List<PerspectiveEntry> perspectives,
         Map<String, PathConfig> paths,
         List<String> exclude,
         List<String> contextFiles,
         List<String> knowledgeBase,
         Integer maxComments
 ) {
+    /** .review.yml と同階層に置く追加コンテキストファイル(Markdown)の格納フォルダ。 */
+    public static final String REVIEW_CONTEXT_DIR = ".review/";
+
     public RepoReviewConfig {
         language = (language == null || language.isBlank()) ? "ja" : language;
         perspectives = perspectives == null ? List.of() : List.copyOf(perspectives);
@@ -33,8 +38,27 @@ public record RepoReviewConfig(
         maxComments = maxComments == null ? 10 : maxComments;
     }
 
+    /**
+     * 1つの観点(テキスト)と、それに紐づく `.review/` 配下の追加コンテキストファイル(任意)。
+     * YAML上はスカラー文字列(contextなし)、または `perspective`/`context` を持つマッピングのどちらでも記述できる。
+     */
+    public record PerspectiveEntry(String text, List<String> context) {
+        public PerspectiveEntry {
+            context = context == null ? List.of() : List.copyOf(context);
+        }
+
+        /** context の各ファイル名を `.review/` 配下の相対パスに解決する。 */
+        public List<String> resolvedContextPaths() {
+            return context.stream().map(f -> REVIEW_CONTEXT_DIR + f).toList();
+        }
+    }
+
     /** モノレポの1フォルダ(glob)に対する追加観点・追加コーディング規約設定。 */
-    public record PathConfig(List<String> perspectives, Boolean inherit, List<String> knowledgeBase) {
+    public record PathConfig(
+            @JsonDeserialize(using = PerspectiveEntryListDeserializer.class) List<PerspectiveEntry> perspectives,
+            Boolean inherit,
+            List<String> knowledgeBase
+    ) {
         public PathConfig {
             perspectives = perspectives == null ? List.of() : List.copyOf(perspectives);
             inherit = inherit == null ? Boolean.TRUE : inherit;
@@ -43,7 +67,7 @@ public record RepoReviewConfig(
     }
 
     /** 変更ファイル一覧に対して適用される観点をグループ化して解決する(モノレポのパス毎観点対応)。 */
-    public record PerspectiveGroup(String label, List<String> perspectives, List<String> matchedFiles) {
+    public record PerspectiveGroup(String label, List<PerspectiveEntry> perspectives, List<String> matchedFiles) {
     }
 
     /** 1つのpath(glob)設定が変更ファイル一覧にマッチした結果。resolveGroupsFor/resolveKnowledgeBaseForで共有する。 */
@@ -112,19 +136,11 @@ public record RepoReviewConfig(
         return List.copyOf(result);
     }
 
+    /**
+     * .review.yml が存在しない/パース失敗した場合のフォールバック設定。
+     * perspectives が空のため、呼び出し元(ReviewOrchestrator)はこの設定を検出するとレビューをスキップする。
+     */
     public static RepoReviewConfig defaultConfig() {
-        return new RepoReviewConfig(
-                "ja",
-                List.of(
-                        "セキュリティ上の懸念(インジェクション、認可漏れ、機密情報の露出)",
-                        "既存コードとの命名・設計の一貫性",
-                        "バグ・エッジケースの見落とし"
-                ),
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                10
-        );
+        return new RepoReviewConfig("ja", List.of(), Map.of(), List.of(), List.of(), List.of(), 10);
     }
 }

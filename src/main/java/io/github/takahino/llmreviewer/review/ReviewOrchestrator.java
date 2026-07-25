@@ -94,8 +94,19 @@ public class ReviewOrchestrator implements AutoCloseable {
         DiffResult diff = diffOutcome.diff();
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(diff.diffText());
         List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
+        if (perspectiveGroups.isEmpty()) {
+            LOGGER.info("適用可能な観点が0件のためレビューをスキップします(.review.yml未配置/パース失敗、または空観点): " + key);
+            return;
+        }
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
         Map<String, String> contextFiles = loadContextFiles(owner, repoName, pr.head().sha(), repoConfig.contextFiles());
+        List<String> reviewContextPaths = perspectiveGroups.stream()
+                .flatMap(g -> g.perspectives().stream())
+                .flatMap(e -> e.resolvedContextPaths().stream())
+                .distinct()
+                .toList();
+        Map<String, String> perspectiveContextFiles =
+                loadContextFiles(owner, repoName, pr.head().sha(), reviewContextPaths);
         RagSearchResult ragResult =
                 searchRagContextSafely(owner, repoName, pr, repoConfig, diff, diffIndex.changedFiles());
 
@@ -106,7 +117,7 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<ChatMessage> conversation = new ArrayList<>();
         conversation.add(promptBuilder.systemMessage());
         conversation.add(promptBuilder.initialUserMessage(
-                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, ragResult, diff,
+                pr, repoConfig, perspectiveGroups, fileTree, contextFiles, perspectiveContextFiles, ragResult, diff,
                 diffOutcome.incrementalPreviousHeadSha()));
 
         Set<String> referencedFiles = new LinkedHashSet<>();

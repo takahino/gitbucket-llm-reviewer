@@ -60,6 +60,7 @@ public class PromptBuilder {
             List<RepoReviewConfig.PerspectiveGroup> perspectiveGroups,
             List<String> repositoryFilePaths,
             Map<String, String> contextFiles,
+            Map<String, String> perspectiveContextFiles,
             RagSearchResult ragResult,
             DiffResult diff,
             String incrementalPreviousHeadSha
@@ -73,7 +74,14 @@ public class PromptBuilder {
         for (RepoReviewConfig.PerspectiveGroup group : perspectiveGroups) {
             sb.append("### ").append(group.label())
                     .append(" (対象: ").append(String.join(", ", group.matchedFiles())).append(")\n");
-            group.perspectives().forEach(p -> sb.append("- ").append(p).append('\n'));
+            for (RepoReviewConfig.PerspectiveEntry entry : group.perspectives()) {
+                sb.append("- ").append(entry.text());
+                List<String> resolvedPaths = entry.resolvedContextPaths();
+                if (!resolvedPaths.isEmpty()) {
+                    sb.append(" (参照ドキュメント: ").append(String.join(", ", resolvedPaths)).append(")");
+                }
+                sb.append('\n');
+            }
         }
         sb.append('\n');
 
@@ -86,6 +94,12 @@ public class PromptBuilder {
         if (!contextFiles.isEmpty()) {
             sb.append("## 常時提供されるコンテキストファイル\n");
             contextFiles.forEach((path, content) ->
+                    sb.append("### ").append(path).append("\n```\n").append(content).append("\n```\n\n"));
+        }
+
+        if (!perspectiveContextFiles.isEmpty()) {
+            sb.append("## 観点別の追加コンテキスト(上記レビュー観点の「参照ドキュメント」の内容)\n");
+            perspectiveContextFiles.forEach((path, content) ->
                     sb.append("### ").append(path).append("\n```\n").append(content).append("\n```\n\n"));
         }
 

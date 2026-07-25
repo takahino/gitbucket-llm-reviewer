@@ -8,8 +8,9 @@
 
 - **ポーリング監視** — 監視対象リポジトリの open なプルリクエストを定期的に走査し、新規PR・既存PRへのpush更新を検出します(レビュー済み状態を永続化するため二重レビューは発生しません)。
 - **変更内容の要約** — ファイル単位で「何を・なぜ・どのように」変更したかをコード引用付きで詳細にまとめ、指摘事項とは別のコメントとして投稿します。
-- **リポジトリ毎のレビュー観点** — リポジトリルートの `.review.yml` で定義した観点でチェックします。
+- **リポジトリ毎のレビュー観点** — リポジトリルートの `.review.yml` で定義した観点でチェックします。`.review.yml` が無い、またはパースに失敗した場合(観点0件)はレビュー自体をスキップします。
 - **モノレポ対応** — `.review.yml` の `paths` でフォルダ(glob)毎に観点を追加できます(例: `frontend/**` と `backend/**` で異なる観点)。
+- **観点別の追加コンテキスト** — `.review.yml` と同階層の `.review/` フォルダにMarkdownを置き、`perspectives` の各エントリから `context` で名指しで参照できます。ドメイン知識・アーキテクチャ・独自DSL・独自コーディングルール・厳守事項などを、RAG検索を介さず常にそのままLLMへ渡せます(`.review/` 配下はサブフォルダで分類可能)。
 - **全体整合チェック(Nパス)** — diffだけでは判断がつかない場合(呼び出し元だけ変更され呼び出し先の実装が見えていない等)、LLMが追加ファイルを要求できます。ツールがそのファイルを取得して再問い合わせすることを、設定した回数まで繰り返します。
 - **RAGによるコンテキスト拡張(任意)** — `rag.enabled: true` にすると、langchain4j 経由でリポジトリコード全体とコーディング規約文書(`.review.yml` の `knowledgeBase`)をベクトル検索し、diffに関連しそうなコード・規約抜粋を「参考情報」として事前提示します。Nパスの申告制取得を置き換えるものではなく補完するもので、embeddingサーバーが不通でもレビュー自体は継続します。
 - **疑似インラインコメント** — GitBucketにはPRのdiff行へ直接コメントするAPIが無いため、指摘箇所周辺のコードをコメント内に引用することで、インラインコメントに近い体験を提供します。
@@ -84,13 +85,16 @@ workDir: ./data/repos
 
 ### リポジトリ側 `.review.yml`
 
-レビュー対象の各リポジトリのルートに `.review.yml` を配置してください(`review.example.yml` をコピー)。存在しない、または解析できない場合はデフォルトの観点で継続します。
+レビュー対象の各リポジトリのルートに `.review.yml` を配置してください(`review.example.yml` をコピー)。**`.review.yml` が存在しない、または解析に失敗した場合は観点が0件となり、そのリポジトリのレビュー自体をスキップします**(観点を明示的に設定したリポジトリのみレビュー対象になります)。
 
 ```yaml
 language: ja
 perspectives:                 # リポジトリ全体に適用する観点
   - "セキュリティ上の懸念(インジェクション、認可漏れ)"
   - "既存コードとの命名・設計の一貫性"
+  - perspective: "独自DSLのバリデーションルール整合性"   # 観点ごとに .review/ 配下の追加コンテキストを渡すことも可能
+    context:
+      - "dsl/spec.md"                                  # .review/dsl/spec.md を読み込む
 paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点・追加コーディング規約
   "frontend/**":
     perspectives:
@@ -114,6 +118,25 @@ knowledgeBase:                # RAG検索対象のコーディング規約文書
 maxComments: 10
 ```
 
+#### 観点別の追加コンテキスト(`.review/` フォルダ)
+
+`.review.yml` と同階層に `.review/` フォルダを置くと、`perspectives`(および `paths.*.perspectives`)の各エントリを `perspective`/`context` を持つマッピング形式で書くことで、その観点専用のMarkdownファイルを紐づけられます。`context` に書くのは `.review/` からの相対パスで、`knowledgeBase` と違いRAGのベクトル検索を介さず、該当観点が適用されるレビューでは常にそのままLLMへ渡されます。ドメイン知識・アーキテクチャ・独自DSL知識・独自コーディングルール・厳守事項など、カテゴリごとにサブフォルダで分類して整理できます。
+
+```
+.review.yml
+.review/
+├── domain-knowledge/
+│   └── payment-flow.md
+├── architecture/
+│   └── overview.md
+├── dsl/
+│   └── spec.md
+├── coding-rules/
+│   └── naming.md
+└── must-follow/
+    └── security-checklist.md
+```
+
 ## 使い方
 
 ```bash
@@ -133,7 +156,7 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 ## 仕組み
 
 1. `PollingService` が監視対象リポジトリ毎に open なPRを取得し、まだレビューしていないhead commitを持つPRを `ReviewOrchestrator` に渡します。
-2. `ReviewOrchestrator` が `.review.yml` を読み込み(GitBucketのcontents API、失敗時はJGit経由)、diffを計算し(JGitによるmerge-base差分をプライマリ、失敗時はコミット単位パッチの連結にフォールバック)、適用すべき観点(共通+モノレポのパスグループ)を解決し、任意のコンテキストファイルを収集します。
+2. `ReviewOrchestrator` が `.review.yml` を読み込み(GitBucketのcontents API、失敗時はJGit経由)、diffを計算し(JGitによるmerge-base差分をプライマリ、失敗時はコミット単位パッチの連結にフォールバック)、適用すべき観点(共通+モノレポのパスグループ)を解決し、任意のコンテキストファイル・観点別の `.review/` コンテキストファイルを収集します。解決した観点が0件(`.review.yml` 未配置・パース失敗・空の `perspectives` 等)の場合はそのPRのレビューをスキップします。
 3. `rag.enabled: true` の場合、diffをクエリとしてリポジトリコード(初回は全量、以降は増分)とコーディング規約文書(`.review.yml` の `knowledgeBase`)をベクトル検索し、関連チャンクを「参考情報」として収集します(embeddingサーバー不通時は空扱いでフォールバックし、レビュー自体は継続します)。
 4. LLMにdiff・観点・リポジトリのファイル一覧・RAG参考情報を渡します。`need_more_context` が返された場合は要求されたファイルを取得(重複除去・サイズ上限あり)し、`review.maxPasses` 回まで再問い合わせします。
 5. 最終的なサマリと指摘事項をMarkdownに整形し、PRコメントとして投稿します。レビュー済みのhead SHAを永続化するため、同じコミットが二重にレビューされることはありません。

@@ -1,8 +1,13 @@
 # このファイルを監視対象リポジトリのルートに ".review.yml" として配置する
+# 存在しない、または解析に失敗した場合はレビュー観点が0件となり、レビュー自体がスキップされる。
 language: ja
 perspectives:                 # リポジトリ共通の観点
   - "セキュリティ(インジェクション、認可漏れ)"
   - "既存コードとの命名・設計の一貫性"
+  - perspective: "独自DSLのバリデーションルール整合性"   # 観点ごとに .review/ 配下の追加コンテキストを渡すことも可能
+    context:
+      - "dsl/spec.md"                                  # 実際に読み込まれるのは .review/dsl/spec.md
+      - "must-follow/security-checklist.md"             # .review/ 配下はサブフォルダで分類してよい
 paths:                        # モノレポ対応: フォルダ(glob)毎の追加観点・追加コーディング規約
   "frontend/**":
     perspectives:
@@ -19,8 +24,28 @@ paths:                        # モノレポ対応: フォルダ(glob)毎の追�
       - "backend/docs/coding-standards.md"
 exclude:                      # diffから除外するglob
   - "**/*.min.js"
-contextFiles:                 # 常にLLMに提供するファイル(任意)
+contextFiles:                 # 常にLLMに渡すファイル(任意)
   - "README.md"
 knowledgeBase:                # RAG検索対象のコーディング規約文書(任意。rag.enabled=true時のみ使用)
   - "docs/coding-standards.md"
 maxComments: 10
+
+# .review/ フォルダ(このファイルと同階層)には、上記 perspectives の context で参照する
+# Markdownファイルを置く。ドメイン知識/アーキテクチャ/独自DSL知識/独自コーディングルール/厳守事項など、
+# 観点ごとに参照させたいコンテキストをカテゴリ別のサブフォルダに分けて管理できる。
+#
+# .review.yml
+# .review/
+# ├── domain-knowledge/
+# │   └── payment-flow.md
+# ├── architecture/
+# │   └── overview.md
+# ├── dsl/
+# │   └── spec.md
+# ├── coding-rules/
+# │   └── naming.md
+# └── must-follow/
+#     └── security-checklist.md
+#
+# knowledgeBase(RAGベクトル検索対象)と異なり、context で指定したファイルは検索を介さず常にそのまま
+# LLMへ渡される。「その観点をチェックする際は必ずこの内容を踏まえてほしい」という用途に向く。

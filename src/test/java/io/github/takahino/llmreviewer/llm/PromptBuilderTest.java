@@ -29,7 +29,7 @@ class PromptBuilderTest {
     @Test
     void initialUserMessageOmitsRagSectionsWhenResultEmpty() {
         ChatMessage message = promptBuilder.initialUserMessage(
-                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(),
+                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
                 RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null);
 
         String text = ((UserMessage) message).singleText();
@@ -44,7 +44,7 @@ class PromptBuilderTest {
                 List.of(new RetrievedChunk("docs/coding-standards.md", "命名規則: camelCase", 0.8)));
 
         ChatMessage message = promptBuilder.initialUserMessage(
-                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(),
+                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
                 ragResult, new DiffResult("diff --git a/x b/x", false), null);
 
         String text = ((UserMessage) message).singleText();

@@ -8,8 +8,9 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 
 - **Polling** — periodically scans configured repositories for open pull requests and detects new PRs and pushes to existing PRs (no double-reviewing thanks to persisted state).
 - **Summary** — generates a detailed, per-file Japanese/English summary of the change (with code excerpts for notable changes), posted as its own comment separate from the findings.
-- **Per-repository review perspectives** — checks defined in a `.review.yml` file at the repository root.
+- **Per-repository review perspectives** — checks defined in a `.review.yml` file at the repository root. If `.review.yml` is missing or fails to parse (zero perspectives), the review is skipped entirely.
 - **Monorepo support** — perspectives can be scoped per folder via glob patterns (e.g. different rules for `frontend/**` vs `backend/**`).
+- **Per-perspective additional context** — put Markdown files under a `.review/` folder next to `.review.yml` and reference them by name from a `perspectives` entry's `context` list. Domain knowledge, architecture notes, custom DSL specs, coding rules, or must-follow requirements are passed to the LLM as-is (no vector search), scoped to that perspective (`.review/` can be organized into subfolders).
 - **Whole-repository consistency check (multi-pass)** — when a diff alone isn't enough to judge correctness (e.g. a call site changed without seeing the callee), the LLM can request additional files; the tool fetches them and re-prompts, up to a configurable number of passes.
 - **RAG context augmentation (optional)** — with `rag.enabled: true`, langchain4j is used to vector-search the whole repository and coding-standard documents (`.review.yml`'s `knowledgeBase`) and surface relevant code/standard excerpts as "reference information" up front. This complements rather than replaces the multi-pass request-based fetch above, and the review still proceeds if the embedding server is unreachable.
 - **Pseudo inline comments** — GitBucket has no API for commenting directly on a diff line, so findings quote the surrounding code from the diff instead, getting close to an inline-comment experience.
@@ -84,13 +85,16 @@ workDir: ./data/repos
 
 ### Repository-side `.review.yml`
 
-Place a `.review.yml` at the root of each reviewed repository (copy from `review.example.yml`). If it's missing or unparsable, a sensible default set of perspectives is used instead.
+Place a `.review.yml` at the root of each reviewed repository (copy from `review.example.yml`). **If it's missing or unparsable, perspectives resolve to zero and the review for that repository is skipped entirely** — only repositories with explicitly configured perspectives get reviewed.
 
 ```yaml
 language: ja
 perspectives:                 # perspectives applied to the whole repository
   - "Security concerns (injection, missing authorization checks)"
   - "Consistency with existing naming/design"
+  - perspective: "Custom DSL validation rule consistency"   # a perspective can carry extra context from .review/
+    context:
+      - "dsl/spec.md"                                       # resolves to .review/dsl/spec.md
 paths:                        # monorepo support: extra perspectives/coding standards per folder (glob)
   "frontend/**":
     perspectives:
@@ -114,6 +118,25 @@ knowledgeBase:                 # coding-standard documents to vector-search (opt
 maxComments: 10
 ```
 
+#### Per-perspective additional context (the `.review/` folder)
+
+Place a `.review/` folder next to `.review.yml`, then write a `perspectives` (or `paths.*.perspectives`) entry as a mapping with `perspective`/`context` instead of a plain string to attach Markdown files to that specific perspective. `context` entries are paths relative to `.review/`; unlike `knowledgeBase`, they skip RAG vector search and are always passed to the LLM as-is whenever that perspective applies. Organize `.review/` into subfolders by category — domain knowledge, architecture, custom DSL specs, coding rules, must-follow requirements, etc.
+
+```
+.review.yml
+.review/
+├── domain-knowledge/
+│   └── payment-flow.md
+├── architecture/
+│   └── overview.md
+├── dsl/
+│   └── spec.md
+├── coding-rules/
+│   └── naming.md
+└── must-follow/
+    └── security-checklist.md
+```
+
 ## Usage
 
 ```bash
@@ -133,7 +156,7 @@ Without `--once`, the process keeps running and polls every `polling.intervalSec
 ## How it works
 
 1. `PollingService` lists open PRs for each configured repository and asks `ReviewOrchestrator` to review any PR whose head commit hasn't been reviewed yet.
-2. `ReviewOrchestrator` loads `.review.yml` (via GitBucket contents API, falling back to JGit), computes the diff (JGit merge-base diff primary, per-commit-patch concatenation as fallback), resolves the perspectives to apply (common + monorepo path groups), and gathers optional context files.
+2. `ReviewOrchestrator` loads `.review.yml` (via GitBucket contents API, falling back to JGit), computes the diff (JGit merge-base diff primary, per-commit-patch concatenation as fallback), resolves the perspectives to apply (common + monorepo path groups), and gathers optional context files plus any per-perspective `.review/` context files. If the resolved perspectives are empty (missing/unparsable `.review.yml`, empty `perspectives`, etc.), the review for that PR is skipped.
 3. If `rag.enabled: true`, the diff is used as a query to vector-search the repository code (indexed fully on first run, incrementally afterward) and coding-standard documents (`.review.yml`'s `knowledgeBase`), surfacing related chunks as "reference information" (falls back to empty and continues the review if the embedding server is unreachable).
 4. The LLM is prompted with the diff, perspectives, repository file list, and RAG reference information. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
 5. The final summary and findings are formatted into Markdown and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
