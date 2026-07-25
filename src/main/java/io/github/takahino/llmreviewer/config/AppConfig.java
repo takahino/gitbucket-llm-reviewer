@@ -84,8 +84,8 @@ public record AppConfig(
             baseUrl = baseUrl.replaceAll("/+$", "");
             apiKey = apiKey == null ? "" : apiKey;
             temperature = temperature == null ? 0.2 : temperature;
-            maxTokens = maxTokens == null ? 4096 : maxTokens;
-            timeoutSeconds = timeoutSeconds == null ? 300 : timeoutSeconds;
+            maxTokens = maxTokens == null ? 16384 : maxTokens;
+            timeoutSeconds = timeoutSeconds == null ? 600 : timeoutSeconds;
             retryMaxAttempts = retryMaxAttempts == null ? 3 : retryMaxAttempts;
             retryBackoffMs = retryBackoffMs == null ? 2000 : retryBackoffMs;
         }
@@ -96,10 +96,10 @@ public record AppConfig(
             Boolean foldPreviousComments
     ) {
         public ReviewConfig {
-            maxDiffChars = maxDiffChars == null ? 60_000 : maxDiffChars;
-            maxAdditionalFiles = maxAdditionalFiles == null ? 5 : maxAdditionalFiles;
-            maxFileChars = maxFileChars == null ? 50_000 : maxFileChars;
-            maxPasses = maxPasses == null ? 3 : maxPasses;
+            maxDiffChars = maxDiffChars == null ? 200_000 : maxDiffChars;
+            maxAdditionalFiles = maxAdditionalFiles == null ? 12 : maxAdditionalFiles;
+            maxFileChars = maxFileChars == null ? 80_000 : maxFileChars;
+            maxPasses = maxPasses == null ? 5 : maxPasses;
             foldPreviousComments = foldPreviousComments == null ? true : foldPreviousComments;
         }
     }
@@ -132,11 +132,11 @@ public record AppConfig(
                     ? "http://localhost:11434" : embeddingBaseUrl.replaceAll("/+$", "");
             embeddingModel = (embeddingModel == null || embeddingModel.isBlank()) ? "nomic-embed-text" : embeddingModel;
             embeddingApiKey = embeddingApiKey == null ? "" : embeddingApiKey;
-            topK = topK == null ? 5 : topK;
+            topK = topK == null ? 10 : topK;
             minScore = minScore == null ? 0.65 : minScore;
-            chunkSize = chunkSize == null ? 500 : chunkSize;
-            chunkOverlap = chunkOverlap == null ? 50 : chunkOverlap;
-            maxIndexFiles = maxIndexFiles == null ? 3000 : maxIndexFiles;
+            chunkSize = chunkSize == null ? 1000 : chunkSize;
+            chunkOverlap = chunkOverlap == null ? 100 : chunkOverlap;
+            maxIndexFiles = maxIndexFiles == null ? 10_000 : maxIndexFiles;
             includeExtensions = includeExtensions == null
                     ? List.of(".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md")
                     : List.copyOf(includeExtensions);

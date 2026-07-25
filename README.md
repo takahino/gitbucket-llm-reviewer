@@ -56,15 +56,15 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # only needed by some OpenAI-compatible servers
   temperature: 0.2
-  maxTokens: 4096
-  timeoutSeconds: 300
+  maxTokens: 16384
+  timeoutSeconds: 600
   retryMaxAttempts: 3   # max attempts (including the first) on LLM call failure
   retryBackoffMs: 2000  # wait time between retries in ms, doubles each attempt
 review:
-  maxDiffChars: 60000
-  maxAdditionalFiles: 5
-  maxFileChars: 50000
-  maxPasses: 3
+  maxDiffChars: 200000
+  maxAdditionalFiles: 12
+  maxFileChars: 80000
+  maxPasses: 5
   foldPreviousComments: true  # fold the bot's previous review comments before posting a new one
 rag:
   enabled: false                        # set true to enable vector-search context augmentation
@@ -72,11 +72,11 @@ rag:
   embeddingBaseUrl: http://localhost:11434
   embeddingModel: nomic-embed-text      # pull it first, e.g. `ollama pull nomic-embed-text`
   embeddingApiKey: ""                   # only for openai-compatible
-  topK: 5
+  topK: 10
   minScore: 0.65
-  chunkSize: 500
-  chunkOverlap: 50
-  maxIndexFiles: 3000
+  chunkSize: 1000
+  chunkOverlap: 100
+  maxIndexFiles: 10000
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
   indexDir: ./data/rag-index
 state:

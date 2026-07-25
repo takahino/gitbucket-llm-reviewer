@@ -56,15 +56,15 @@ llm:
   model: qwen2.5-coder:14b
   apiKey: ""          # 一部のOpenAI互換サーバーでのみ必要
   temperature: 0.2
-  maxTokens: 4096
-  timeoutSeconds: 300
+  maxTokens: 16384
+  timeoutSeconds: 600
   retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)
   retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)
 review:
-  maxDiffChars: 60000
-  maxAdditionalFiles: 5
-  maxFileChars: 50000
-  maxPasses: 3
+  maxDiffChars: 200000
+  maxAdditionalFiles: 12
+  maxFileChars: 80000
+  maxPasses: 5
   foldPreviousComments: true  # 過去のレビューコメントを折りたたんでから新規コメントを投稿する
 rag:
   enabled: false                        # trueにするとベクトル検索によるコンテキスト拡張を有効化
@@ -72,11 +72,11 @@ rag:
   embeddingBaseUrl: http://localhost:11434
   embeddingModel: nomic-embed-text      # 事前に `ollama pull nomic-embed-text` 等で取得しておくこと
   embeddingApiKey: ""                   # openai-compatible時のみ
-  topK: 5
+  topK: 10
   minScore: 0.65
-  chunkSize: 500
-  chunkOverlap: 50
-  maxIndexFiles: 3000
+  chunkSize: 1000
+  chunkOverlap: 100
+  maxIndexFiles: 10000
   includeExtensions: [".java", ".kt", ".ts", ".tsx", ".py", ".go", ".md"]
   indexDir: ./data/rag-index
 state:
