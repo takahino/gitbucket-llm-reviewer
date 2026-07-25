@@ -3,6 +3,7 @@ package io.github.takahino.llmreviewer.review;
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
+import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.RepositoryReader;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
@@ -150,9 +151,10 @@ class RepoReviewConfigFetcherTest {
 
         RepoReviewConfigFetcher fetcher = new RepoReviewConfigFetcher(
                 clientFor(server.getAddress().getPort()), FakeRepositoryReader.returning(null));
-        RepoReviewConfig config = fetcher.fetchParsed("owner", "repo", "master");
+        RepoReviewConfigLoader.ParseResult result = fetcher.fetchParsed("owner", "repo", "master");
 
-        assertEquals(RepoReviewConfig.defaultConfig(), config);
+        assertEquals(RepoReviewConfig.defaultConfig(), result.config());
+        assertTrue(result.warnings().isEmpty());
     }
 
     @Test

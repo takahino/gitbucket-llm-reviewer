@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * .review.yml の perspectives リストをパースするデシリアライザ。
@@ -16,25 +18,43 @@ import java.util.List;
  */
 public class PerspectiveEntryListDeserializer extends JsonDeserializer<List<RepoReviewConfig.PerspectiveEntry>> {
 
+    private static final Set<String> KNOWN_KEYS = Set.of("perspective", "context");
+
     @Override
     public List<RepoReviewConfig.PerspectiveEntry> deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
         JsonNode arrayNode = p.getCodec().readTree(p);
         List<RepoReviewConfig.PerspectiveEntry> result = new ArrayList<>();
         for (JsonNode node : arrayNode) {
-            result.add(toEntry(node));
+            result.add(toEntry(node, ctxt));
         }
         return result;
     }
 
-    private RepoReviewConfig.PerspectiveEntry toEntry(JsonNode node) {
+    private RepoReviewConfig.PerspectiveEntry toEntry(JsonNode node, DeserializationContext ctxt) {
         if (node.isTextual()) {
             return new RepoReviewConfig.PerspectiveEntry(node.asText(), List.of());
         }
+        warnOnUnknownKeys(node, ctxt);
         String text = node.path("perspective").asText("");
         List<String> context = new ArrayList<>();
         for (JsonNode contextNode : node.path("context")) {
             context.add(contextNode.asText());
         }
         return new RepoReviewConfig.PerspectiveEntry(text, context);
+    }
+
+    /**
+     * カスタムデシリアライザ内でJsonNodeを手動で読んでいるため、通常のプロパティバインディングを経由する
+     * {@code DeserializationProblemHandler}(RepoReviewConfigLoader側)では未知キーを検知できない。
+     * ここで perspective/context 以外のキーを個別にチェックし、同じ警告リストへ追記する。
+     */
+    private void warnOnUnknownKeys(JsonNode node, DeserializationContext ctxt) {
+        for (Iterator<String> names = node.fieldNames(); names.hasNext(); ) {
+            String name = names.next();
+            if (!KNOWN_KEYS.contains(name)) {
+                RepoReviewConfigLoader.addWarning(ctxt,
+                        "perspectives のエントリに未知のキー '%s' があります(有効なキー: perspective, context)".formatted(name));
+            }
+        }
     }
 }

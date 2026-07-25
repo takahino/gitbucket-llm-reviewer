@@ -1,6 +1,5 @@
 package io.github.takahino.llmreviewer.review;
 
-import io.github.takahino.llmreviewer.config.RepoReviewConfig;
 import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.git.GitMirrorException;
 import io.github.takahino.llmreviewer.git.RepositoryReader;
@@ -45,12 +44,12 @@ public class RepoReviewConfigFetcher {
         return content;
     }
 
-    public RepoReviewConfig fetchParsed(String owner, String repoName, String ref) {
+    public RepoReviewConfigLoader.ParseResult fetchParsed(String owner, String repoName, String ref) {
         return parseRaw(fetchRaw(owner, repoName, ref));
     }
 
     /** 既に取得済みの生YAML文字列をパースする(呼び出し側がrawとparsedの両方を必要とする場合の再フェッチ防止用)。 */
-    public RepoReviewConfig parseRaw(Optional<String> raw) {
+    public RepoReviewConfigLoader.ParseResult parseRaw(Optional<String> raw) {
         return RepoReviewConfigLoader.parse(raw.orElse(null));
     }
 

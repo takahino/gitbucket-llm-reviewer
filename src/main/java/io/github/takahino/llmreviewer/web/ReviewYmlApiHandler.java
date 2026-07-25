@@ -3,6 +3,7 @@ package io.github.takahino.llmreviewer.web;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import io.github.takahino.llmreviewer.config.RepoReviewConfig;
+import io.github.takahino.llmreviewer.config.RepoReviewConfigLoader;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketApiException;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
@@ -33,7 +34,9 @@ final class ReviewYmlApiHandler implements HttpHandler {
     record ContextFileView(String path, List<String> usedBy, String content, boolean found) {
     }
 
-    record ReviewYmlView(boolean found, String raw, RepoReviewConfig parsed, List<ContextFileView> reviewContextFiles) {
+    record ReviewYmlView(
+            boolean found, String raw, RepoReviewConfig parsed, List<String> warnings,
+            List<ContextFileView> reviewContextFiles) {
     }
 
     @Override
@@ -67,10 +70,12 @@ final class ReviewYmlApiHandler implements HttpHandler {
         }
 
         Optional<String> raw = repoReviewConfigFetcher.fetchRaw(owner, repo, defaultBranch);
-        RepoReviewConfig parsed = repoReviewConfigFetcher.parseRaw(raw);
+        RepoReviewConfigLoader.ParseResult parseResult = repoReviewConfigFetcher.parseRaw(raw);
+        RepoReviewConfig parsed = parseResult.config();
         List<ContextFileView> contextFiles = resolveContextFiles(owner, repo, defaultBranch, parsed);
 
-        JsonHttp.writeJson(exchange, 200, new ReviewYmlView(raw.isPresent(), raw.orElse(null), parsed, contextFiles));
+        JsonHttp.writeJson(exchange, 200,
+                new ReviewYmlView(raw.isPresent(), raw.orElse(null), parsed, parseResult.warnings(), contextFiles));
     }
 
     /** perspectives(共通・path毎)が参照する .review/ 配下のファイルを収集し、実体を取得する。 */
