@@ -19,6 +19,7 @@ A standalone Java 21 application that polls [GitBucket](https://github.com/gitbu
 - **Not UTF-8 only** — source files are decoded with automatic charset detection (Shift_JIS, EUC-JP, UTF-8, ...), since real-world codebases are not always UTF-8.
 - **Resilient diff retrieval** — uses JGit against GitBucket's git smart HTTP endpoint as the primary diff source (GitBucket's REST API has no `pulls/:id/files` or compare endpoint), falling back to concatenated per-commit patches from the REST API if JGit fails.
 - **Posts review comments** back to the pull request, plus structured logging.
+- **Follow-up questions and re-reviews via mention** — mentioning the bot's own account (`@botname`) in a PR comment triggers the LLM to answer that comment as a question or additional review request, posting the reply as a new comment. This path is always active regardless of whether `.review.yml` exists — when it doesn't, the mention comment's own text is used as the perspective.
 
 ## Requirements
 
@@ -48,6 +49,7 @@ gitbucket:
   token: "xxxxxxxx"
   gitUsername: ""     # for JGit fetch (optional). If blank, the API token is tried as Basic auth user/password
   gitPassword: ""
+  botUsername: ""     # bot's own username for the mention-reply feature (blank = auto-resolve via GET /api/v3/user)
 repositories:
   - owner: root
     name: sample-repo
@@ -82,6 +84,7 @@ rag:
   indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
+  mentionStateFilePath: ./data/mention-state.json
 workDir: ./data/repos
 ```
 
@@ -176,6 +179,7 @@ Because `AppConfig` is loaded once at process startup and injected into the poll
 3. If `rag.enabled: true`, the diff is used as a query to vector-search the repository code (indexed fully on first run, incrementally afterward) and coding-standard documents (`.review.yml`'s `knowledgeBase`), surfacing related chunks as "reference information" (falls back to empty and continues the review if the embedding server is unreachable).
 4. The LLM is prompted with the diff, perspectives, repository file list, and RAG reference information. If it replies `need_more_context`, the requested files are fetched (deduplicated, size-capped) and it's re-prompted, up to `review.maxPasses` times.
 5. The final summary and findings are formatted into Markdown and posted as a PR comment. The reviewed head SHA is persisted so the same commit is never reviewed twice.
+6. Independently of the above, `PollingService` also asks `MentionReplyOrchestrator` to check each PR for mentions. It resolves the bot's own username at startup (`gitbucket.botUsername`, or auto-resolved via `GET /api/v3/user` if blank) and, for any unprocessed comment mentioning it, feeds the LLM `.review.yml` (if any), the diff, the prior comment history, and the mention comment's text, then posts the reply as a new comment. The last processed comment ID is persisted per PR, so the same comment is never answered twice. This path runs independently of the regular review and stays active even when `.review.yml` is missing, in which case the mention comment's own text is used as the perspective.
 
 ## Known limitations
 
@@ -185,6 +189,9 @@ Because `AppConfig` is loaded once at process startup and injected into the poll
 - Incremental review only works while the previously reviewed head SHA's git object is still resolvable from the local mirror. After a force-push or mirror gc that removes it, the tool falls back to reviewing the full PR diff.
 - GitBucket strips HTML tags (including `<details>`) from Markdown for security reasons, so past review comments are not collapsed/folded — every push posts new summary/findings comments and the comment history simply accumulates.
 - RAG (`rag.enabled: true`) surfaces "reference information" via vector similarity search; it does not guarantee accurate file retrieval. When precise information is needed (e.g. confirming a callee's implementation), the LLM still falls back to requesting the full file via `need_more_context`.
+- There is no restriction on who can trigger the bot via mention — anyone who can comment on the PR can trigger an LLM call.
+- Editing an existing comment to add a mention afterward is not detected (the comment ID doesn't change); it must be posted as a new comment.
+- On first observing a PR (e.g. right after deploy), any mentions already present are not answered — only the current latest comment ID is recorded as a baseline, to avoid a burst of replies to old mentions.
 
 ## License
 

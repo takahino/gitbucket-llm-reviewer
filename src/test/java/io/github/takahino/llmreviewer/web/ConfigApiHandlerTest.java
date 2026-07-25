@@ -37,7 +37,7 @@ class ConfigApiHandlerTest {
 
     private AppConfig sampleConfig(String baseUrl) {
         return new AppConfig(
-                new AppConfig.GitBucketConfig(baseUrl, "token-value", "", ""),
+                new AppConfig.GitBucketConfig(baseUrl, "token-value", "", "", ""),
                 List.of(new AppConfig.RepositoryRef("owner", "repo")),
                 new AppConfig.PollingConfig(30),
                 new AppConfig.LlmConfig("http://localhost:11434/v1", "qwen2.5-coder:14b", "", 0.2, 4096, 300, 3, 2000),
@@ -45,7 +45,7 @@ class ConfigApiHandlerTest {
                 new AppConfig.RagConfig(
                         false, "ollama", "http://localhost:11434", "nomic-embed-text", "", 5, 0.65, 500, 50, 3000,
                         List.of(".java", ".md"), "./data/rag-index"),
-                new AppConfig.StateConfig("./data/review-state.json"),
+                new AppConfig.StateConfig("./data/review-state.json", "./data/mention-state.json"),
                 "./data/repos"
         );
     }

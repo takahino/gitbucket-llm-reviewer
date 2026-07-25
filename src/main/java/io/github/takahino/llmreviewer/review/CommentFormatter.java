@@ -2,6 +2,7 @@ package io.github.takahino.llmreviewer.review;
 
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
 import io.github.takahino.llmreviewer.llm.model.Finding;
+import io.github.takahino.llmreviewer.llm.model.MentionReplyOutput;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 
 import java.util.List;
@@ -29,6 +30,11 @@ public final class CommentFormatter {
 
     private static String marker(String kind, String headSha) {
         return "%s:%s: %s -->".formatted(MARKER_PREFIX, kind, headSha);
+    }
+
+    /** メンション応答コメント用のマーカー。同一PRで複数回メンションされても区別できるよう、トリガーとなったコメントIDを含める。 */
+    public static String mentionReplyMarker(long triggerCommentId) {
+        return "%s:mentionReply:%d -->".formatted(MARKER_PREFIX, triggerCommentId);
     }
 
     /** 変更サマリのみを含むコメント本文を組み立てる。 */
@@ -85,6 +91,27 @@ public final class CommentFormatter {
             }
         }
         sb.append('\n');
+        appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
+        return sb.toString();
+    }
+
+    /** メンション応答(追質問/追レビュー)の回答コメント本文を組み立てる。 */
+    public static String formatMentionReply(
+            MentionReplyOutput output,
+            String headSha,
+            String modelName,
+            List<String> referencedAdditionalFiles,
+            long triggerCommentId,
+            String triggerUserLogin
+    ) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(mentionReplyMarker(triggerCommentId)).append("\n\n");
+        sb.append("## 回答");
+        if (!isBlank(triggerUserLogin)) {
+            sb.append(" (@").append(triggerUserLogin).append(" さんへ)");
+        }
+        sb.append('\n');
+        sb.append(isBlank(output.answer()) ? "(回答なし)" : output.answer()).append("\n\n");
         appendFooter(sb, headSha, modelName, referencedAdditionalFiles);
         return sb.toString();
     }

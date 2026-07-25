@@ -19,6 +19,7 @@
 - **UTF-8前提にしない** — 実運用のコードベースは必ずしもUTF-8とは限らない(Shift_JIS、EUC-JP等)ため、ソースファイルの文字コードを自動判定してデコードします。
 - **堅牢なdiff取得** — GitBucketのREST APIには `pulls/:id/files` やcompare相当のエンドポイントが無いため、GitBucketのgit smart HTTPに対するJGitでのmerge-base差分取得をプライマリとし、失敗時はREST APIのコミット単位パッチを連結するフォールバックに切り替えます。
 - **PRへのコメント投稿** — レビュー結果をPRコメントとして投稿し、あわせて構造化ログにも出力します。
+- **メンションでの追質問/追レビュー** — PRコメントでBot自身のアカウント(`@botname`)にメンションすると、その文面を質問または追加レビュー依頼としてLLMに渡し、回答をコメント投稿します。この経路は `.review.yml` の有無に関係なく常時動作し、`.review.yml` が無いリポジトリではメンションコメントの文面そのものを観点として使います。
 
 ## 動作要件
 
@@ -47,6 +48,7 @@ gitbucket:
   token: "xxxxxxxx"
   gitUsername: ""     # JGit fetch用(任意)。空ならAPIトークンをBasic認証のusername/passwordとして試行
   gitPassword: ""
+  botUsername: ""     # メンション応答機能でのBot自身のユーザー名(空なら GET /api/v3/user で自動解決)
 repositories:
   - owner: root
     name: sample-repo
@@ -81,6 +83,7 @@ rag:
   indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
+  mentionStateFilePath: ./data/mention-state.json
 workDir: ./data/repos
 ```
 
@@ -163,6 +166,7 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 3. `rag.enabled: true` の場合、diffをクエリとしてリポジトリコード(初回は全量、以降は増分)とコーディング規約文書(`.review.yml` の `knowledgeBase`)をベクトル検索し、関連チャンクを「参考情報」として収集します(embeddingサーバー不通時は空扱いでフォールバックし、レビュー自体は継続します)。
 4. LLMにdiff・観点・リポジトリのファイル一覧・RAG参考情報を渡します。`need_more_context` が返された場合は要求されたファイルを取得(重複除去・サイズ上限あり)し、`review.maxPasses` 回まで再問い合わせします。
 5. 最終的なサマリと指摘事項をMarkdownに整形し、PRコメントとして投稿します。レビュー済みのhead SHAを永続化するため、同じコミットが二重にレビューされることはありません。
+6. これとは独立して、`PollingService` は各PRについて `MentionReplyOrchestrator` にもメンション応答の確認を依頼します。起動時に解決したBotユーザー名(`gitbucket.botUsername`、空なら `GET /api/v3/user` で自動解決)へのメンションを含む未処理コメントを検知すると、`.review.yml`(あれば)・diff・これまでのコメント履歴・メンションコメント本文を渡してLLMに回答させ、その回答を新規コメントとして投稿します。処理済みの最終コメントIDを永続化するため、同じコメントに二重応答することはありません。`.review.yml` が無いリポジトリでも、この経路は通常のレビューとは独立して常時動作し、メンションコメントの文面そのものを観点として扱います。
 
 ## 既知の制約
 
@@ -172,6 +176,9 @@ java -jar target/gitbucket-llm-reviewer.jar --config config.yml
 - 増分レビューは、前回レビュー済みheadShaのGitオブジェクトがローカルミラーから取得できる場合のみ有効です。force-pushやミラーのgc等で取得できない場合はPR全体のレビューにフォールバックします。
 - GitBucketはセキュリティ上の理由でMarkdown中のHTMLタグ(`<details>`含む)をすべて除去する仕様のため、過去のレビューコメントを折りたたむことはできません。pushの度にサマリ・指摘事項の新規コメントが積み上がっていきます。
 - RAG(`rag.enabled: true`)はベクトル類似検索による「参考情報」の提示であり、正確なファイル取得を保証するものではありません。呼び出し先の実装確認など正確性が必要な場合は、従来どおりLLMが `need_more_context` でファイル全文を要求します。
+- メンションでBotを呼び出せるユーザーに制限はありません。PRにコメントできる人は誰でもLLM呼び出しをトリガーできます。
+- 既存コメントを編集して後からメンションを追加しても検知されません(コメントIDが変わらないため)。新規コメントとして投稿する必要があります。
+- デプロイ直後や初めて観測するPRでは、それまでに溜まっていたメンションには応答しません(過去メンションへの一括応答を避けるため、その時点の最新コメントIDを基準点として記録するのみです)。
 
 ## ライセンス
 

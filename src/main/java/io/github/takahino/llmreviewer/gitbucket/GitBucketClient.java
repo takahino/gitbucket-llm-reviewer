@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.gitbucket.model.CommitDetail;
 import io.github.takahino.llmreviewer.gitbucket.model.CommitRef;
+import io.github.takahino.llmreviewer.gitbucket.model.GitUser;
 import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 import io.github.takahino.llmreviewer.gitbucket.model.PullRequestInfo;
 import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
@@ -69,6 +70,13 @@ public class GitBucketClient {
         URI uri = apiUri("/repos/%s/%s/commits/%s".formatted(owner, repo, sha), Map.of());
         String body = sendJsonRequest(newRequestBuilder(uri).GET());
         return parse(body, CommitDetail.class);
+    }
+
+    /** トークンに紐づく認証済みユーザー情報を取得する。メンション応答機能でBot自身のユーザー名を解決するために使用する。 */
+    public GitUser getAuthenticatedUser() {
+        URI uri = apiUri("/user", Map.of());
+        String body = sendJsonRequest(newRequestBuilder(uri).GET());
+        return parse(body, GitUser.class);
     }
 
     /** リポジトリ情報(デフォルトブランチ等)を取得する。PRに紐づかない文脈(管理UI等)でのブランチ解決に使う。 */

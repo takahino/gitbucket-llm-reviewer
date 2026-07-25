@@ -85,7 +85,7 @@ class ReviewYmlApiHandlerTest {
     }
 
     private GitBucketClient gitBucketClientFor(int mockPort) {
-        return new GitBucketClient(new AppConfig.GitBucketConfig("http://127.0.0.1:" + mockPort, "test-token", null, null));
+        return new GitBucketClient(new AppConfig.GitBucketConfig("http://127.0.0.1:" + mockPort, "test-token", null, null, null));
     }
 
     @Test

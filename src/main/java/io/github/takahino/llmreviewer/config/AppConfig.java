@@ -28,11 +28,11 @@ public record AppConfig(
         review = review != null ? review : new ReviewConfig(null, null, null, null);
         rag = rag != null ? rag : new RagConfig(
                 null, null, null, null, null, null, null, null, null, null, null, null);
-        state = state != null ? state : new StateConfig(null);
+        state = state != null ? state : new StateConfig(null, null);
         workDir = (workDir == null || workDir.isBlank()) ? "./data/repos" : workDir;
     }
 
-    public record GitBucketConfig(String baseUrl, String token, String gitUsername, String gitPassword) {
+    public record GitBucketConfig(String baseUrl, String token, String gitUsername, String gitPassword, String botUsername) {
         public GitBucketConfig {
             if (baseUrl == null || baseUrl.isBlank()) {
                 throw new IllegalArgumentException("gitbucket.baseUrl は必須です");
@@ -43,6 +43,8 @@ public record AppConfig(
             baseUrl = baseUrl.replaceAll("/+$", "");
             gitUsername = gitUsername == null ? "" : gitUsername;
             gitPassword = gitPassword == null ? "" : gitPassword;
+            // 空ならBotIdentityResolverがGitBucket APIから自動解決する
+            botUsername = botUsername == null ? "" : botUsername;
         }
     }
 
@@ -102,9 +104,11 @@ public record AppConfig(
         }
     }
 
-    public record StateConfig(String filePath) {
+    public record StateConfig(String filePath, String mentionStateFilePath) {
         public StateConfig {
             filePath = (filePath == null || filePath.isBlank()) ? "./data/review-state.json" : filePath;
+            mentionStateFilePath = (mentionStateFilePath == null || mentionStateFilePath.isBlank())
+                    ? "./data/mention-state.json" : mentionStateFilePath;
         }
     }
 

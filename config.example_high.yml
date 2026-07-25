@@ -14,6 +14,7 @@ gitbucket:
   token: "xxxxxxxx"
   gitUsername: ""     # JGit fetch用(任意。空ならtokenをBasic認証のusername/passwordとして試行)
   gitPassword: ""
+  botUsername: ""     # メンション応答機能でのBot自身のユーザー名(空なら GET /api/v3/user で自動解決)
 repositories:
   - owner: root
     name: sample-repo
@@ -48,6 +49,7 @@ rag:
   indexDir: ./data/rag-index
 state:
   filePath: ./data/review-state.json
+  mentionStateFilePath: ./data/mention-state.json
 workDir: ./data/repos
 
 # 注意: maxTokens/maxDiffChars/maxAdditionalFiles/maxFileChars/maxPassesを

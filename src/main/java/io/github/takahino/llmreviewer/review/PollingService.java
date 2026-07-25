@@ -18,17 +18,20 @@ public class PollingService {
 
     private final GitBucketClient gitBucketClient;
     private final ReviewOrchestrator orchestrator;
+    private final MentionReplyOrchestrator mentionReplyOrchestrator;
     private final List<AppConfig.RepositoryRef> repositories;
     private final int intervalSeconds;
 
     public PollingService(
             GitBucketClient gitBucketClient,
             ReviewOrchestrator orchestrator,
+            MentionReplyOrchestrator mentionReplyOrchestrator,
             List<AppConfig.RepositoryRef> repositories,
             int intervalSeconds
     ) {
         this.gitBucketClient = gitBucketClient;
         this.orchestrator = orchestrator;
+        this.mentionReplyOrchestrator = mentionReplyOrchestrator;
         this.repositories = repositories;
         this.intervalSeconds = intervalSeconds;
     }
@@ -44,6 +47,14 @@ public class PollingService {
                     } catch (RuntimeException e) {
                         LOGGER.log(Level.SEVERE,
                                 "PR単位の処理で予期しないエラーが発生しました: %s#%d".formatted(repo.fullName(), pr.number()), e);
+                    }
+                    // メンション応答は自動レビューとは独立した経路のため、片方の失敗がもう片方をブロックしないよう
+                    // 別のtry/catchで処理する。
+                    try {
+                        mentionReplyOrchestrator.respondToMentionsIfAny(repo, pr);
+                    } catch (RuntimeException e) {
+                        LOGGER.log(Level.SEVERE,
+                                "メンション応答処理で予期しないエラーが発生しました: %s#%d".formatted(repo.fullName(), pr.number()), e);
                     }
                 }
             } catch (RuntimeException e) {

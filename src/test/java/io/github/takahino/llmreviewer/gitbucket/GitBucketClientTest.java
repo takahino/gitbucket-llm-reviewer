@@ -2,6 +2,7 @@ package io.github.takahino.llmreviewer.gitbucket;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.takahino.llmreviewer.config.AppConfig;
+import io.github.takahino.llmreviewer.gitbucket.model.GitUser;
 import io.github.takahino.llmreviewer.gitbucket.model.IssueComment;
 import io.github.takahino.llmreviewer.gitbucket.model.RepositoryDetail;
 import org.junit.jupiter.api.AfterEach;
@@ -31,7 +32,7 @@ class GitBucketClientTest {
 
     private GitBucketClient clientFor(int port) {
         AppConfig.GitBucketConfig config =
-                new AppConfig.GitBucketConfig("http://127.0.0.1:" + port, "test-token", null, null);
+                new AppConfig.GitBucketConfig("http://127.0.0.1:" + port, "test-token", null, null, null);
         return new GitBucketClient(config);
     }
 
@@ -60,6 +61,35 @@ class GitBucketClientTest {
         assertEquals(1, comments.get(0).id());
         assertEquals("hello", comments.get(0).body());
         assertEquals("world", comments.get(1).body());
+    }
+
+    @Test
+    void listIssueCommentsParsesUserField() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v3/repos/owner/repo/issues/5/comments", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            respond(exchange, 200, "[{\"id\":1,\"body\":\"hello\",\"user\":{\"login\":\"alice\"}}]");
+        });
+        server.start();
+
+        List<IssueComment> comments = clientFor(server.getAddress().getPort())
+                .listIssueComments("owner", "repo", 5);
+
+        assertEquals("alice", comments.get(0).user().login());
+    }
+
+    @Test
+    void getAuthenticatedUserParsesLogin() throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v3/user", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            respond(exchange, 200, "{\"login\":\"bot-user\",\"email\":\"bot@localhost\"}");
+        });
+        server.start();
+
+        GitUser user = clientFor(server.getAddress().getPort()).getAuthenticatedUser();
+
+        assertEquals("bot-user", user.login());
     }
 
     @Test

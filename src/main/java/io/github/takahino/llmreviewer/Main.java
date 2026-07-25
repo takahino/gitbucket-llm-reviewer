@@ -5,6 +5,7 @@ import io.github.takahino.llmreviewer.config.AppConfig;
 import io.github.takahino.llmreviewer.config.AppConfigLoader;
 import io.github.takahino.llmreviewer.git.ApiDiffProvider;
 import io.github.takahino.llmreviewer.git.JGitDiffProvider;
+import io.github.takahino.llmreviewer.gitbucket.BotIdentityResolver;
 import io.github.takahino.llmreviewer.gitbucket.GitBucketClient;
 import io.github.takahino.llmreviewer.llm.LlmClient;
 import io.github.takahino.llmreviewer.rag.EmbeddingModelFactory;
@@ -14,6 +15,8 @@ import io.github.takahino.llmreviewer.rag.NoOpRagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagContextResolver;
 import io.github.takahino.llmreviewer.rag.RagIndexStateStore;
 import io.github.takahino.llmreviewer.rag.RepoCodeIndexService;
+import io.github.takahino.llmreviewer.review.MentionReplyOrchestrator;
+import io.github.takahino.llmreviewer.review.MentionStateStore;
 import io.github.takahino.llmreviewer.review.PollingService;
 import io.github.takahino.llmreviewer.review.RepoReviewConfigFetcher;
 import io.github.takahino.llmreviewer.review.ReviewOrchestrator;
@@ -67,8 +70,24 @@ public final class Main {
                 config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
                 repoReviewConfigFetcher);
 
+        String botUsername = BotIdentityResolver.resolve(gitBucketClient, config.gitbucket().botUsername())
+                .orElse(null);
+        if (botUsername == null) {
+            LOGGER.warning("Botユーザー名を解決できなかったため、メンション応答機能を無効化します"
+                    + "(gitbucket.botUsername を明示設定すると回避できます)");
+        } else {
+            LOGGER.info("メンション応答機能を有効化します(botUsername=%s)".formatted(botUsername));
+        }
+        MentionStateStore mentionStateStore =
+                new MentionStateStore(Path.of(config.state().mentionStateFilePath()), arguments.dryRun());
+        MentionReplyOrchestrator mentionReplyOrchestrator = new MentionReplyOrchestrator(
+                gitBucketClient, jGitProvider, apiFallbackProvider, llmClient, mentionStateStore,
+                config.review(), config.llm().model(), arguments.dryRun(), ragContextResolver,
+                repoReviewConfigFetcher, botUsername);
+
         PollingService pollingService = new PollingService(
-                gitBucketClient, orchestrator, config.repositories(), config.polling().intervalSeconds());
+                gitBucketClient, orchestrator, mentionReplyOrchestrator,
+                config.repositories(), config.polling().intervalSeconds());
 
         if (arguments.once()) {
             pollingService.runOnce();

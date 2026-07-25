@@ -14,9 +14,13 @@ public final class LlmResponseParser {
     }
 
     public static ReviewOutput parse(String rawContent) {
+        return parse(rawContent, ReviewOutput.class);
+    }
+
+    public static <T> T parse(String rawContent, Class<T> type) {
         String jsonText = extractJson(rawContent);
         try {
-            return MAPPER.readValue(jsonText, ReviewOutput.class);
+            return MAPPER.readValue(jsonText, type);
         } catch (IOException e) {
             throw new LlmClientException("LLM応答のJSON抽出に失敗しました: " + rawContent, e);
         }

@@ -35,7 +35,7 @@ class RepoReviewConfigFetcherTest {
 
     private GitBucketClient clientFor(int port) {
         AppConfig.GitBucketConfig config =
-                new AppConfig.GitBucketConfig("http://127.0.0.1:" + port, "test-token", null, null);
+                new AppConfig.GitBucketConfig("http://127.0.0.1:" + port, "test-token", null, null, null);
         return new GitBucketClient(config);
     }
 

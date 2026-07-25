@@ -25,6 +25,10 @@ gitbucket:
   gitUsername: ""
   # 同パスワード。gitUsername を設定した場合はこちらも必ず設定すること。
   gitPassword: ""
+  # PRコメントでのメンション応答機能(追質問/追レビュー)で、自分自身(Bot)のユーザー名として
+  # 認識する名前。空にした場合は起動時に GitBucket API (GET /api/v3/user、上記tokenの持ち主)
+  # から自動解決する。自動解決に失敗する場合のみ明示的に設定する。
+  botUsername: ""
 
 # 監視対象リポジトリの一覧。最低1件必要。ここに列挙したリポジトリのみポーリング対象になる。
 repositories:
@@ -104,6 +108,9 @@ state:
   # 同じコミットへの二重レビューを防ぐ。3回連続で失敗したPRは status: "skipped" となり以後リトライしない
   # (push更新でheadShaが変わればfailureCountはリセットされ再度レビュー対象になる)。
   filePath: ./data/review-state.json
+  # PR毎のメンション応答済み状態(処理済み最終コメントID)を永続化するJSONファイルのパス。
+  # 同じメンションコメントへの二重応答を防ぐ。
+  mentionStateFilePath: ./data/mention-state.json
 
 # JGitのローカルbareミラー(リポジトリ毎のgitオブジェクト)の保存先。
 # diff取得・ファイル読み込み・RAGインデックス構築のいずれもここにfetchしたミラーを使う。

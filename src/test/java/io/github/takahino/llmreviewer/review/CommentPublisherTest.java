@@ -49,7 +49,7 @@ class CommentPublisherTest {
     }
 
     private GitBucketClient clientFor() {
-        return new GitBucketClient(new AppConfig.GitBucketConfig("http://127.0.0.1:" + server.getAddress().getPort(), "token", null, null));
+        return new GitBucketClient(new AppConfig.GitBucketConfig("http://127.0.0.1:" + server.getAddress().getPort(), "token", null, null, null));
     }
 
     @Test

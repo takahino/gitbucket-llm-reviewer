@@ -2,6 +2,7 @@ package io.github.takahino.llmreviewer.review;
 
 import io.github.takahino.llmreviewer.git.UnifiedDiffIndex;
 import io.github.takahino.llmreviewer.llm.model.Finding;
+import io.github.takahino.llmreviewer.llm.model.MentionReplyOutput;
 import io.github.takahino.llmreviewer.llm.model.ReviewOutput;
 import org.junit.jupiter.api.Test;
 
@@ -102,5 +103,23 @@ class CommentFormatterTest {
         assertTrue(summaryBody.contains("deadbeef00".substring(0, 10)));
         assertTrue(findingsBody.contains("前回レビュー"));
         assertTrue(findingsBody.contains("deadbeef00".substring(0, 10)));
+    }
+
+    @Test
+    void formatMentionReplyIncludesMarkerAnswerAndTriggerUser() {
+        MentionReplyOutput output = new MentionReplyOutput("complete", List.of(), "この関数はnullを返しません");
+
+        String body = CommentFormatter.formatMentionReply(
+                output, "abc1234567", "test-model", List.of(), 42L, "alice");
+
+        assertTrue(body.contains(CommentFormatter.mentionReplyMarker(42L)));
+        assertTrue(body.contains("## 回答"));
+        assertTrue(body.contains("@alice"));
+        assertTrue(body.contains("この関数はnullを返しません"));
+    }
+
+    @Test
+    void mentionReplyMarkerDiffersByTriggerCommentId() {
+        assertFalse(CommentFormatter.mentionReplyMarker(1L).equals(CommentFormatter.mentionReplyMarker(2L)));
     }
 }
