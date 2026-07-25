@@ -34,6 +34,7 @@ class CommentFormatterTest {
         assertTrue(body.contains("## 変更サマリ"));
         assertTrue(body.contains("サマリです"));
         assertFalse(body.contains("## 指摘事項"), "サマリコメントに指摘事項セクションは含まれないこと");
+        assertFalse(body.contains("## 参照したコンテキストファイル"), "参照ファイルが空の場合はセクション自体を出さないこと");
     }
 
     @Test
@@ -41,10 +42,35 @@ class CommentFormatterTest {
         ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
 
         String body = CommentFormatter.formatSummary(
-                output, "abc1234567", "test-model", List.of("src/Bar.java"), null);
+                output, "abc1234567", "test-model",
+                List.of(new CommentFormatter.ReferencedFile("src/Bar.java", CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)),
+                null);
 
-        assertTrue(body.contains("参照した追加ファイル"));
-        assertTrue(body.contains("src/Bar.java"));
+        assertTrue(body.contains("## 参照したコンテキストファイル"));
+        assertTrue(body.contains("- src/Bar.java (追加取得)"));
+    }
+
+    @Test
+    void formatSummaryListsReferencedContextFilesWithKindLabels() {
+        ReviewOutput output = new ReviewOutput("complete", List.of(), "サマリです", List.of());
+        List<CommentFormatter.ReferencedFile> referenced = List.of(
+                new CommentFormatter.ReferencedFile("docs/CONVENTIONS.md", CommentFormatter.ReferencedFile.Kind.ALWAYS_CONTEXT),
+                new CommentFormatter.ReferencedFile("docs/PERSPECTIVE.md", CommentFormatter.ReferencedFile.Kind.PERSPECTIVE_CONTEXT),
+                new CommentFormatter.ReferencedFile("src/Related.java", CommentFormatter.ReferencedFile.Kind.RAG_RELATED_CODE),
+                new CommentFormatter.ReferencedFile("docs/RULES.md", CommentFormatter.ReferencedFile.Kind.RAG_KNOWLEDGE_BASE),
+                new CommentFormatter.ReferencedFile("src/Foo.java", CommentFormatter.ReferencedFile.Kind.FULL_FILE_CONTEXT),
+                new CommentFormatter.ReferencedFile("src/Bar.java", CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)
+        );
+
+        String body = CommentFormatter.formatSummary(output, "abc1234567", "test-model", referenced, null);
+
+        assertTrue(body.contains("## 参照したコンテキストファイル"));
+        assertTrue(body.contains("- docs/CONVENTIONS.md (常時コンテキスト)"));
+        assertTrue(body.contains("- docs/PERSPECTIVE.md (観点別コンテキスト)"));
+        assertTrue(body.contains("- src/Related.java (関連コード候補(RAG))"));
+        assertTrue(body.contains("- docs/RULES.md (関連コーディング規約(RAG))"));
+        assertTrue(body.contains("- src/Foo.java (全文コンテキスト)"));
+        assertTrue(body.contains("- src/Bar.java (追加取得)"));
     }
 
     @Test
@@ -101,10 +127,12 @@ class CommentFormatterTest {
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(SAMPLE_DIFF);
 
         String body = CommentFormatter.formatFindings(
-                output, "abc1234567", "test-model", List.of("src/Bar.java"), 10, diffIndex, null, null);
+                output, "abc1234567", "test-model",
+                List.of(new CommentFormatter.ReferencedFile("src/Bar.java", CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)),
+                10, diffIndex, null, null);
 
-        assertTrue(body.contains("参照した追加ファイル"));
-        assertTrue(body.contains("src/Bar.java"));
+        assertTrue(body.contains("## 参照したコンテキストファイル"));
+        assertTrue(body.contains("- src/Bar.java (追加取得)"));
     }
 
     @Test
@@ -147,6 +175,21 @@ class CommentFormatterTest {
         assertTrue(body.contains("## 回答"));
         assertTrue(body.contains("@alice"));
         assertTrue(body.contains("この関数はnullを返しません"));
+    }
+
+    @Test
+    void formatMentionReplyListsReferencedContextFilesWithKindLabels() {
+        MentionReplyOutput output = new MentionReplyOutput("complete", List.of(), "回答です");
+        List<CommentFormatter.ReferencedFile> referenced = List.of(
+                new CommentFormatter.ReferencedFile("docs/CONVENTIONS.md", CommentFormatter.ReferencedFile.Kind.ALWAYS_CONTEXT),
+                new CommentFormatter.ReferencedFile("src/Bar.java", CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)
+        );
+
+        String body = CommentFormatter.formatMentionReply(output, "abc1234567", "test-model", referenced, 42L, "alice");
+
+        assertTrue(body.contains("## 参照したコンテキストファイル"));
+        assertTrue(body.contains("- docs/CONVENTIONS.md (常時コンテキスト)"));
+        assertTrue(body.contains("- src/Bar.java (追加取得)"));
     }
 
     @Test

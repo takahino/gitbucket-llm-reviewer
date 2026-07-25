@@ -174,17 +174,46 @@ public class ReviewOrchestrator implements AutoCloseable {
             output = withoutInvalidFindings(output, finalIssues);
         }
 
-        List<String> referencedFileList = List.copyOf(referencedFiles);
+        List<CommentFormatter.ReferencedFile> referencedContextFiles = collectReferencedContextFiles(
+                contextFiles, perspectiveContextFiles, ragResult, fullFileContext, referencedFiles);
         String fileBlobBaseUrl = "%s/%s/%s/blob/%s".formatted(scmBaseUrl, owner, repoName, pr.head().sha());
         List<String> commentBodies = List.of(
                 CommentFormatter.formatSummary(
-                        output, pr.head().sha(), llmModelName, referencedFileList,
+                        output, pr.head().sha(), llmModelName, referencedContextFiles,
                         diffOutcome.incrementalPreviousHeadSha()),
                 CommentFormatter.formatFindings(
-                        output, pr.head().sha(), llmModelName, referencedFileList, repoConfig.maxComments(),
+                        output, pr.head().sha(), llmModelName, referencedContextFiles, repoConfig.maxComments(),
                         diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl)
         );
         commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
+    }
+
+    /**
+     * LLMに実際に渡した全コンテキストソース(常時/観点別/RAG関連コード/RAG規約/全文/動的取得)を
+     * フッター表示用に1つのリストへ合算する。同一(path, kind)は自動的に1件へ統合されるが、
+     * 異なるsourceで同じpathが渡っていた場合はその経路が読者にとって意味を持つため別行として残す。
+     */
+    private static List<CommentFormatter.ReferencedFile> collectReferencedContextFiles(
+            Map<String, String> contextFiles,
+            Map<String, String> perspectiveContextFiles,
+            RagSearchResult ragResult,
+            Map<String, String> fullFileContext,
+            Set<String> dynamicallyFetchedFiles
+    ) {
+        Set<CommentFormatter.ReferencedFile> result = new LinkedHashSet<>();
+        contextFiles.keySet().forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.ALWAYS_CONTEXT)));
+        perspectiveContextFiles.keySet().forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.PERSPECTIVE_CONTEXT)));
+        ragResult.relatedCode().forEach(c ->
+                result.add(new CommentFormatter.ReferencedFile(c.sourcePath(), CommentFormatter.ReferencedFile.Kind.RAG_RELATED_CODE)));
+        ragResult.knowledgeBase().forEach(c ->
+                result.add(new CommentFormatter.ReferencedFile(c.sourcePath(), CommentFormatter.ReferencedFile.Kind.RAG_KNOWLEDGE_BASE)));
+        fullFileContext.keySet().forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.FULL_FILE_CONTEXT)));
+        dynamicallyFetchedFiles.forEach(p ->
+                result.add(new CommentFormatter.ReferencedFile(p, CommentFormatter.ReferencedFile.Kind.DYNAMICALLY_FETCHED)));
+        return List.copyOf(result);
     }
 
     /** maxPasses到達後もfile/lineが不正なfindingsが残っている場合の最終防御として、該当分を除外する。 */
