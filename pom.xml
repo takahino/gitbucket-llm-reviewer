@@ -6,7 +6,7 @@
 
   <groupId>io.github.takahino</groupId>
   <artifactId>gitbucket-llm-reviewer</artifactId>
-  <version>1.6.3</version>
+  <version>1.6.4</version>
   <packaging>jar</packaging>
 
   <name>gitbucket-llm-reviewer</name>
