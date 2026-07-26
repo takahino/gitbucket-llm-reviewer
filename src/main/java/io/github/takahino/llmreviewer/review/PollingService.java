@@ -5,9 +5,6 @@ import io.github.takahino.llmreviewer.scm.ScmClient;
 import io.github.takahino.llmreviewer.scm.model.PullRequest;
 
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -63,27 +60,54 @@ public class PollingService {
         }
     }
 
-    /** intervalSeconds 毎に runOnce を実行し続ける(常駐モード)。 */
+    /**
+     * intervalSeconds 毎に runOnce を実行し続ける(常駐モード)。次回実行までの残り秒数をコンソールに
+     * 毎秒上書き表示する(ScheduledExecutorServiceでは次回発火までの残り時間を外から把握しづらいため、
+     * 明示的なループ+Thread.sleepで管理している)。
+     */
     public void startPolling() {
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "polling-service");
-            t.setDaemon(false);
-            return t;
-        });
+        Thread pollingThread = new Thread(this::pollingLoop, "polling-service");
+        pollingThread.setDaemon(false);
+        pollingThread.start();
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOGGER.info("シャットダウン要求を受信、ポーリングを停止します");
-            executor.shutdown();
+            pollingThread.interrupt();
             try {
-                if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
-                    executor.shutdownNow();
-                }
+                pollingThread.join(30_000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                executor.shutdownNow();
             }
             orchestrator.close();
             LOGGER.info("ポーリングを停止しました");
         }, "polling-shutdown-hook"));
-        executor.scheduleWithFixedDelay(this::runOnce, 0, intervalSeconds, TimeUnit.SECONDS);
+    }
+
+    private void pollingLoop() {
+        while (!Thread.currentThread().isInterrupted()) {
+            runOnce();
+            if (!countdownBeforeNextRun()) {
+                return;
+            }
+        }
+    }
+
+    /** intervalSeconds秒のカウントダウンを標準出力に毎秒上書き表示する。割り込まれたらfalseを返す。 */
+    private boolean countdownBeforeNextRun() {
+        for (int remaining = intervalSeconds; remaining > 0; remaining--) {
+            System.out.print("\r次回ポーリングまで: %3d秒 ".formatted(remaining));
+            System.out.flush();
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.out.println();
+                return false;
+            }
+        }
+        // カウントダウン表示を消してから次のrunOnceのログ出力に移る
+        System.out.print("\r" + " ".repeat(20) + "\r");
+        System.out.flush();
+        return true;
     }
 }

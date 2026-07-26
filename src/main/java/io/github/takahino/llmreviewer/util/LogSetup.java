@@ -1,5 +1,6 @@
 package io.github.takahino.llmreviewer.util;
 
+import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -17,6 +18,10 @@ public final class LogSetup {
     }
 
     public static void init(Level level) {
+        // PollingServiceのカウントダウン表示等、Logger経由ではなくSystem.outへ直接出力する箇所でも
+        // 日本語がWindowsのデフォルトコンソールコードページで文字化けしないようにする。
+        System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
+
         LogManager.getLogManager().reset();
         Logger rootLogger = Logger.getLogger("");
         rootLogger.setLevel(level);
