@@ -33,7 +33,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
-/** 1 PR に対するレビューパイプライン全体(diff取得 → バッチ分割 → 観点解決 → LLM Nパス(バッチ毎) → 結果結合 → コメント投稿)を担う。 */
+/**
+ * 1 PR に対するレビューパイプライン全体(diff取得 → バッチ分割 → 観点解決 → LLM Nパス(バッチ毎) → 結果結合 → コメント投稿)を担う。
+ * 観点が0件(.review.yml未配置/パース失敗/空観点)の場合はfindings生成をスキップし、変更サマリのみ投稿する。
+ */
 public class ReviewOrchestrator implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger(ReviewOrchestrator.class.getName());
@@ -113,9 +116,10 @@ public class ReviewOrchestrator implements AutoCloseable {
         // (バッチ分割はLLM送信単位の話であり、コメント整形はPR全体でまとめて行うためマージ不要)。
         UnifiedDiffIndex diffIndex = UnifiedDiffIndex.parse(rawDiff);
         List<RepoReviewConfig.PerspectiveGroup> prPerspectiveGroups = repoConfig.resolveGroupsFor(diffIndex.changedFiles());
-        if (prPerspectiveGroups.isEmpty()) {
-            LOGGER.info("適用可能な観点が0件のためレビューをスキップします(.review.yml未配置/パース失敗、または空観点): " + key);
-            return;
+        // 観点が0件(.review.yml未配置/パース失敗/空観点)の場合はfindings生成をスキップし、変更サマリのみ生成・投稿する。
+        boolean summaryOnly = prPerspectiveGroups.isEmpty();
+        if (summaryOnly) {
+            LOGGER.info("適用可能な観点が0件のため要約のみ生成します(.review.yml未配置/パース失敗、または空観点): " + key);
         }
 
         List<String> fileTree = getFileTreeSafely(owner, repoName, pr.head().sha());
@@ -146,7 +150,7 @@ public class ReviewOrchestrator implements AutoCloseable {
             DiffBatcher.Batch batch = batches.get(i);
             List<String> batchChangedFiles = batch.changedFiles();
             List<RepoReviewConfig.PerspectiveGroup> batchGroups = repoConfig.resolveGroupsFor(batchChangedFiles);
-            if (batchGroups.isEmpty()) {
+            if (batchGroups.isEmpty() && !summaryOnly) {
                 continue;
             }
 
@@ -193,14 +197,17 @@ public class ReviewOrchestrator implements AutoCloseable {
         List<CommentFormatter.ReferencedFile> referencedContextFiles = collectReferencedContextFiles(
                 contextFiles, allPerspectiveContextFiles, mergedRag, allFullFileContext, referencedFiles);
         String fileBlobBaseUrl = "%s/%s/%s/blob/%s".formatted(scmBaseUrl, owner, repoName, pr.head().sha());
-        List<String> commentBodies = List.of(
-                CommentFormatter.formatSummary(
-                        merged, pr.head().sha(), llmModelName, referencedContextFiles,
-                        diffOutcome.incrementalPreviousHeadSha(), batching.skippedFiles()),
-                CommentFormatter.formatFindings(
-                        merged, pr.head().sha(), llmModelName, referencedContextFiles, repoConfig.maxComments(),
-                        diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl)
-        );
+        String summaryComment = CommentFormatter.formatSummary(
+                merged, pr.head().sha(), llmModelName, referencedContextFiles,
+                diffOutcome.incrementalPreviousHeadSha(), batching.skippedFiles());
+        // 観点0件時はfindings生成自体を促していないため、指摘事項コメント(「特に指摘事項はありませんでした」)は投稿しない。
+        List<String> commentBodies = summaryOnly
+                ? List.of(summaryComment)
+                : List.of(
+                        summaryComment,
+                        CommentFormatter.formatFindings(
+                                merged, pr.head().sha(), llmModelName, referencedContextFiles, repoConfig.maxComments(),
+                                diffIndex, diffOutcome.incrementalPreviousHeadSha(), fileBlobBaseUrl));
         commentPublisher.publish(owner, repoName, pr.number(), commentBodies);
     }
 

@@ -44,6 +44,18 @@ class PromptBuilderTest {
     }
 
     @Test
+    void initialUserMessageInstructsSummaryOnlyWhenPerspectiveGroupsEmpty() {
+        ChatMessage message = promptBuilder.initialUserMessage(
+                samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
+                RagSearchResult.empty(), new DiffResult("diff --git a/x b/x", false), null, Map.of(),
+                PromptBuilder.BatchInfo.single());
+
+        String text = ((UserMessage) message).singleText();
+        assertTrue(text.contains("findings は必ず空配列"));
+        assertFalse(text.contains("### "));
+    }
+
+    @Test
     void initialUserMessageOmitsRagSectionsWhenResultEmpty() {
         ChatMessage message = promptBuilder.initialUserMessage(
                 samplePr(), RepoReviewConfig.defaultConfig(), List.of(), List.of(), Map.of(), Map.of(),
