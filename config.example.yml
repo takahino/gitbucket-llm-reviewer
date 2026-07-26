@@ -64,6 +64,10 @@ llm:
   retryMaxAttempts: 3
   # リトライ毎の待機時間(ミリ秒)。試行のたびに倍加する指数バックオフ。
   retryBackoffMs: 2000
+  # response_formatパラメータの指定方法。OpenAI/OpenRouter等クラウド系は json_object のままでよいが、
+  # LM Studio等の一部OpenAI互換ローカルサーバーは json_object を拒否し json_schema/text のみ受け付ける
+  # ("'response_format.type' must be 'json_schema' or 'text'" というエラーが出た場合は json_schema に変更する)。
+  responseFormat: json_object
 
 review:
   # 1バッチ(1回のLLMリクエスト)に含めるdiffの最大文字数。PR全体のdiffがこれを超える場合、

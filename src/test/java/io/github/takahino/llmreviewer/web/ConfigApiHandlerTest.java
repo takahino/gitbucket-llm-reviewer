@@ -41,7 +41,7 @@ class ConfigApiHandlerTest {
                 new AppConfig.GitBucketConfig(baseUrl, "token-value", "", "", ""),
                 List.of(new AppConfig.RepositoryRef("owner", "repo")),
                 new AppConfig.PollingConfig(30),
-                new AppConfig.LlmConfig("http://localhost:11434/v1", "qwen2.5-coder:14b", "", 0.2, 4096, 300, 3, 2000),
+                new AppConfig.LlmConfig("http://localhost:11434/v1", "qwen2.5-coder:14b", "", 0.2, 4096, 300, 3, 2000, "json_object"),
                 new AppConfig.ReviewConfig(60000, 5, 50000, 3, false, 20, 20),
                 new AppConfig.RagConfig(
                         false, "ollama", "http://localhost:11434", "nomic-embed-text", "", 5, 0.65, 500, 50, 3000,

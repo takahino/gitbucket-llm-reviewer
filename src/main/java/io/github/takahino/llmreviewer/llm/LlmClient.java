@@ -5,6 +5,8 @@ import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
+import dev.langchain4j.model.chat.request.json.JsonRawSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import io.github.takahino.llmreviewer.config.AppConfig;
@@ -21,6 +23,50 @@ import java.util.List;
  */
 public class LlmClient {
 
+    /**
+     * ReviewOutput(status/requestedFiles/summary/findings)とMentionReplyOutput(status/requestedFiles/answer)の
+     * 両方の形状を許容する共有スキーマ(responseFormat=json_schema時に使用)。LlmClientはReviewOrchestratorと
+     * MentionReplyOrchestratorの両方から共有される単一インスタンスのため、片方でしか使わないフィールドが
+     * 混在する。summary/answer/findings[].lineはユースケースにより不要/nullになりうるため、
+     * "type": ["string","null"] のようなunion配列表記(一部のllama.cpp系ローカルサーバーで
+     * grammar変換のサポートが不安定なことがある)を避け、型制約なし({})で任意の値を許容する形にしている。
+     * 両record共に @JsonIgnoreProperties(ignoreUnknown = true) のため、不要なフィールドが
+     * 含まれてもパースは壊れない。
+     */
+    private static final String SHARED_OUTPUT_SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "status": { "type": "string" },
+                "requestedFiles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": { "type": "string" },
+                      "reason": { "type": "string" }
+                    }
+                  }
+                },
+                "summary": {},
+                "answer": {},
+                "findings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "file": { "type": "string" },
+                      "line": {},
+                      "severity": { "type": "string" },
+                      "perspective": { "type": "string" },
+                      "comment": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
     private final ChatModel chatModel;
 
     public LlmClient(AppConfig.LlmConfig config) {
@@ -34,8 +80,26 @@ public class LlmClient {
                 // config.retryMaxAttempts()は初回試行を含む最大試行回数。langchain4jのmaxRetriesは
                 // 初回とは別の追加リトライ回数を指すため、-1して意味を合わせる(最小0)。
                 .maxRetries(Math.max(0, config.retryMaxAttempts() - 1))
-                .responseFormat(ResponseFormat.builder().type(ResponseFormatType.JSON).build())
+                .responseFormat(resolveResponseFormat(config.responseFormat()))
                 .build();
+    }
+
+    /**
+     * OpenAI互換サーバーによってresponse_format.typeに許容する値が異なる
+     * (例: LM StudioはjsonObjectを拒否しjson_schema/textのみ許可)ため、config.ymlのllm.responseFormatで切り替える。
+     */
+    private static ResponseFormat resolveResponseFormat(String responseFormat) {
+        return switch (responseFormat) {
+            case "text" -> ResponseFormat.builder().type(ResponseFormatType.TEXT).build();
+            case "json_schema" -> ResponseFormat.builder()
+                    .type(ResponseFormatType.JSON)
+                    .jsonSchema(JsonSchema.builder()
+                            .name("llm_reviewer_output")
+                            .rootElement(JsonRawSchema.from(SHARED_OUTPUT_SCHEMA))
+                            .build())
+                    .build();
+            default -> ResponseFormat.builder().type(ResponseFormatType.JSON).build(); // "json_object"
+        };
     }
 
     public String chat(List<ChatMessage> messages) {

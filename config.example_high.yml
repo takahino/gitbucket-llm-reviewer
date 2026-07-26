@@ -30,6 +30,7 @@ llm:
   timeoutSeconds: 600   # ↑300: 大型モデル・長いreasoningによる応答遅延を許容
   retryMaxAttempts: 3   # LLM呼び出し失敗時の最大試行回数(初回含む)。ハードウェア非依存のため据え置き
   retryBackoffMs: 2000  # リトライ毎の待機時間(ミリ秒、指数的に増加)。同上、据え置き
+  responseFormat: json_object  # LM Studio等では json_schema に変更(詳細は config.example.yml 参照)
 review:
   maxDiffChars: 200000      # ↑60000: 262,144トークン級の広いネイティブコンテキストを活かす(1バッチあたりの上限)
   maxDiffBatches: 20        # 1バッチが大きいため据え置き。超過時は今回対象外ファイルとしてサマリに明記される
