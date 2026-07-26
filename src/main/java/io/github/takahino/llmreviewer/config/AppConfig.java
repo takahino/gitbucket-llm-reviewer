@@ -80,7 +80,8 @@ public record AppConfig(
             Integer maxTokens,
             Integer timeoutSeconds,
             Integer retryMaxAttempts,
-            Integer retryBackoffMs
+            Integer retryBackoffMs,
+            String responseFormat
     ) {
         public LlmConfig {
             if (baseUrl == null || baseUrl.isBlank()) {
@@ -96,6 +97,15 @@ public record AppConfig(
             timeoutSeconds = timeoutSeconds == null ? 600 : timeoutSeconds;
             retryMaxAttempts = retryMaxAttempts == null ? 3 : retryMaxAttempts;
             retryBackoffMs = retryBackoffMs == null ? 2000 : retryBackoffMs;
+            // OpenAI互換サーバーによって response_format.type に許容する値が異なる
+            // (例: LM Studio等は json_object を拒否し json_schema/text のみ許可)ため選択式にしている。
+            responseFormat = (responseFormat == null || responseFormat.isBlank())
+                    ? "json_object" : responseFormat.trim();
+            if (!"json_object".equals(responseFormat) && !"json_schema".equals(responseFormat)
+                    && !"text".equals(responseFormat)) {
+                throw new IllegalArgumentException(
+                        "llm.responseFormat は json_object, json_schema, text のいずれかを指定してください: " + responseFormat);
+            }
         }
     }
 

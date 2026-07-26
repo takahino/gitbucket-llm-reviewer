@@ -252,6 +252,14 @@
             <label>ベースURL<span class="required">*</span></label>
             <input class="field-input" data-path="llm.baseUrl" placeholder="http://localhost:11434/v1">
           </div>
+          <div class="field">
+            <label>レスポンス形式</label>
+            <select class="field-input" data-path="llm.responseFormat">
+              <option value="json_object">json_object(OpenAI/OpenRouter等)</option>
+              <option value="json_schema">json_schema(LM Studio等のローカルサーバー)</option>
+              <option value="text">text(response_formatを送信しない)</option>
+            </select>
+          </div>
           <div class="field" id="llm-model-field">
             <label>モデル名<span class="required">*</span></label>
             <input class="field-input" data-path="llm.model">

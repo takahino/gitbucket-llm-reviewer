@@ -13,9 +13,12 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LlmClientTest {
 
@@ -32,7 +35,12 @@ class LlmClientTest {
     }
 
     private AppConfig.LlmConfig configFor(String baseUrl, int retryMaxAttempts, int retryBackoffMs) {
-        return new AppConfig.LlmConfig(baseUrl, "test-model", null, null, null, 5, retryMaxAttempts, retryBackoffMs);
+        return configFor(baseUrl, retryMaxAttempts, retryBackoffMs, null);
+    }
+
+    private AppConfig.LlmConfig configFor(String baseUrl, int retryMaxAttempts, int retryBackoffMs, String responseFormat) {
+        return new AppConfig.LlmConfig(
+                baseUrl, "test-model", null, null, null, 5, retryMaxAttempts, retryBackoffMs, responseFormat);
     }
 
     @Test
@@ -99,5 +107,47 @@ class LlmClientTest {
 
         assertThrows(LangChain4jException.class, () -> client.chat(List.of(new UserMessage("hi"))));
         assertEquals(3, requestCount.get());
+    }
+
+    private String captureRequestBody(String responseFormat) throws IOException {
+        AtomicReference<String> capturedBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            capturedBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] body = SUCCESS_BODY.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+
+        LlmClient client = new LlmClient(
+                configFor("http://127.0.0.1:" + server.getAddress().getPort(), 1, 10, responseFormat));
+        client.chat(List.of(new UserMessage("hi")));
+        // 送信ボディは整形済みJSON(キー・値間にスペースが入る)で届くため、空白を除去してから比較する。
+        return capturedBody.get().replaceAll("\\s+", "");
+    }
+
+    @Test
+    void sendsJsonObjectResponseFormatByDefault() throws IOException {
+        String body = captureRequestBody("json_object");
+
+        assertTrue(body.contains("\"response_format\":{\"type\":\"json_object\"}"));
+    }
+
+    @Test
+    void sendsJsonSchemaResponseFormatWhenConfigured() throws IOException {
+        String body = captureRequestBody("json_schema");
+
+        assertTrue(body.contains("\"response_format\":{\"type\":\"json_schema\""));
+        assertTrue(body.contains("\"requestedFiles\""));
+    }
+
+    @Test
+    void omitsResponseFormatWhenTextConfigured() throws IOException {
+        String body = captureRequestBody("text");
+
+        assertFalse(body.contains("response_format"));
     }
 }
