@@ -27,9 +27,14 @@ public class LlmClient {
      * ReviewOutput(status/requestedFiles/summary/findings)とMentionReplyOutput(status/requestedFiles/answer)の
      * 両方の形状を許容する共有スキーマ(responseFormat=json_schema時に使用)。LlmClientはReviewOrchestratorと
      * MentionReplyOrchestratorの両方から共有される単一インスタンスのため、片方でしか使わないフィールドが
-     * 混在する。summary/answer/findings[].lineはユースケースにより不要/nullになりうるため、
-     * "type": ["string","null"] のようなunion配列表記(一部のllama.cpp系ローカルサーバーで
-     * grammar変換のサポートが不安定なことがある)を避け、型制約なし({})で任意の値を許容する形にしている。
+     * 混在する。
+     *
+     * 型制約なし({})でnull許容を表現すると、一部のllama.cpp系ローカルサーバー(LM Studio等)の
+     * grammar変換が「制約なし」を適切に扱えず、summaryのような長いMarkdown文字列を書く際に
+     * カンマ抜け・波括弧混入等の壊れたJSONを生成することを実機検証で確認した。そのため全プロパティに
+     * 具体的な型(string/integer/array/object)を必ず指定し、null許容が必要なプロパティ(summary/answer/
+     * findings[].line)は "required" に含めず省略可能にすることでnull相当を表現する
+     * (union type配列 "type": ["string","null"] も使わない。より広く実績のある基本語彙のみで構成する)。
      * 両record共に @JsonIgnoreProperties(ignoreUnknown = true) のため、不要なフィールドが
      * 含まれてもパースは壊れない。
      */
@@ -45,25 +50,28 @@ public class LlmClient {
                     "properties": {
                       "path": { "type": "string" },
                       "reason": { "type": "string" }
-                    }
+                    },
+                    "required": ["path", "reason"]
                   }
                 },
-                "summary": {},
-                "answer": {},
+                "summary": { "type": "string" },
+                "answer": { "type": "string" },
                 "findings": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
                       "file": { "type": "string" },
-                      "line": {},
+                      "line": { "type": "integer" },
                       "severity": { "type": "string" },
                       "perspective": { "type": "string" },
                       "comment": { "type": "string" }
-                    }
+                    },
+                    "required": ["file", "severity", "perspective", "comment"]
                   }
                 }
-              }
+              },
+              "required": ["status"]
             }
             """;
 
