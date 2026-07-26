@@ -138,7 +138,8 @@ public record RepoReviewConfig(
 
     /**
      * .review.yml が存在しない/パース失敗した場合のフォールバック設定。
-     * perspectives が空のため、呼び出し元(ReviewOrchestrator)はこの設定を検出するとレビューをスキップする。
+     * perspectives が空のため、呼び出し元(ReviewOrchestrator)はこの設定を検出するとfindings(指摘事項)の
+     * 生成をスキップし、変更サマリのみを生成する(summary-onlyモード)。
      */
     public static RepoReviewConfig defaultConfig() {
         return new RepoReviewConfig("ja", List.of(), Map.of(), List.of(), List.of(), List.of(), 10);

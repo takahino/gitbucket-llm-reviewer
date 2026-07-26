@@ -112,16 +112,22 @@ public class PromptBuilder {
         appendBatchInfoSection(sb, batchInfo);
 
         sb.append("## レビュー観点\n");
-        for (RepoReviewConfig.PerspectiveGroup group : perspectiveGroups) {
-            sb.append("### ").append(group.label())
-                    .append(" (対象: ").append(String.join(", ", group.matchedFiles())).append(")\n");
-            for (RepoReviewConfig.PerspectiveEntry entry : group.perspectives()) {
-                sb.append("- ").append(entry.text());
-                List<String> resolvedPaths = entry.resolvedContextPaths();
-                if (!resolvedPaths.isEmpty()) {
-                    sb.append(" (参照ドキュメント: ").append(String.join(", ", resolvedPaths)).append(")");
+        if (perspectiveGroups.isEmpty()) {
+            sb.append("(このPRに適用されるレビュー観点は設定されていません。"
+                    + "findings は必ず空配列 [] とし、指摘事項は作成せず、"
+                    + "summary フィールドに変更内容の要約のみを記載してください。)\n");
+        } else {
+            for (RepoReviewConfig.PerspectiveGroup group : perspectiveGroups) {
+                sb.append("### ").append(group.label())
+                        .append(" (対象: ").append(String.join(", ", group.matchedFiles())).append(")\n");
+                for (RepoReviewConfig.PerspectiveEntry entry : group.perspectives()) {
+                    sb.append("- ").append(entry.text());
+                    List<String> resolvedPaths = entry.resolvedContextPaths();
+                    if (!resolvedPaths.isEmpty()) {
+                        sb.append(" (参照ドキュメント: ").append(String.join(", ", resolvedPaths)).append(")");
+                    }
+                    sb.append('\n');
                 }
-                sb.append('\n');
             }
         }
         sb.append('\n');
